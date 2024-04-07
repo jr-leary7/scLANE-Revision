@@ -1,0 +1,95 @@
+---
+title: "Processing Pipeline for Simulation Study Data"
+subtitle: "Bacher Group"
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(comment = NA)
+set.seed(312)  # lucky seed
+```
+
+# Libraries  {#sec-libs}
+
+We'll only need the `dplyr` library for this processing. 
+
+```{r}
+#| message: false
+library(dplyr)
+```
+
+# Data  {#sec-data}
+
+We read in the processed, reference dataset-specific metric tables from [our simulation pipeline](https://www.github.com/jr-leary7/scLANE-Simulations) and create a single master table for all model types across all reference datasets.
+
+```{r}
+ts_metrics <- list(brain = qs::qread("../../data/simulation/Metrics_tradeSeq_Single_Subject_Brain"), 
+                   panc = qs::qread("../../data/simulation//Metrics_tradeSeq_Single_Subject_Pancreas"), 
+                   endo = qs::qread("../../data/simulation//Metrics_tradeSeq_Single_Subject_Endocrinogenesis")) %>% 
+              purrr::reduce(rbind)
+scl_glm_metrics <- list(brain = qs::qread("../../data/simulation//Metrics_scLANE_GLM_Single_Subject_Brain"), 
+                        panc = qs::qread("../../data/simulation//Metrics_scLANE_GLM_Single_Subject_Pancreas"), 
+                        endo = qs::qread("../../data/simulation//Metrics_scLANE_GLM_Single_Subject_Endocrinogenesis")) %>% 
+                   purrr::reduce(rbind)
+scl_gee_metrics <- list(brain = qs::qread("../../data/simulation//Metrics_scLANE_GEE_Multi_Subject_Brain"), 
+                        panc = qs::qread("../../data/simulation//Metrics_scLANE_GEE_Multi_Subject_Pancreas"), 
+                        endo = qs::qread("../../data/simulation//Metrics_scLANE_GEE_Multi_Subject_Endocrinogenesis")) %>% 
+                   purrr::reduce(rbind)
+scl_glmm_metrics <- list(brain = qs::qread("../../data/simulation//Metrics_scLANE_GLMM_Multi_Subject_Brain"), 
+                         panc = qs::qread("../../data/simulation//Metrics_scLANE_GLMM_Multi_Subject_Pancreas"), 
+                         endo = qs::qread("../../data/simulation//Metrics_scLANE_GLMM_Multi_Subject_Endocrinogenesis")) %>% 
+                    purrr::reduce(rbind)
+metric_table_master <- list(scl_glm_metrics, 
+                            scl_gee_metrics,
+                            scl_glmm_metrics, 
+                            ts_metrics) %>% 
+                       purrr::reduce(rbind) %>% 
+                       mutate(MODEL_TYPE = factor(MODEL_TYPE, levels = c("scLANE - GLM", "tradeSeq", "scLANE - GEE", "scLANE - GLMM")), 
+                              DATE_BUILT = Sys.Date())
+```
+
+# Save data {#sec-save}
+
+Lastly, we save the master metric table as a `qs` object. 
+
+```{r}
+qs::qsave(metric_table_master, file = "../../data/simulation/metric_table_master")
+```
+
+# Session info {#sec-SI}
+
+```{r}
+sessioninfo::session_info()
+```

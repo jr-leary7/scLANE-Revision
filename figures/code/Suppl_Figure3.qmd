@@ -1,0 +1,413 @@
+---
+title: "Supplementary Figure 3"
+subtitle: "Bacher Group"
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(comment = NA)
+reticulate::use_condaenv("../../../../py_envs/scLANE_env2/", required = TRUE)
+set.seed(312)  # lucky seed
+```
+
+# Libraries {#sec-libs}
+
+We begin by loading the prerequisite libraries. 
+
+```{r}
+#| message: false
+#| warning: false
+library(dplyr)       # data manipulation
+library(Seurat)      # scRNA-seq tools
+library(scLANE)      # trajectory DE
+library(ggplot2)     # pretty plots
+library(tradeSeq)    # more trajectory DE
+library(slingshot)   # pseudotime estimation
+library(patchwork)   # plot alignment
+library(reticulate)  # Python interface
+```
+
+# Visualization tools {#sec-viz-tools}
+
+First we define a `ggplot` guide that will make our legends cleaner and easier to read. 
+
+```{r}
+guide_umap <- function(key.size = 5) {
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, alpha = 1)))
+}
+```
+
+Next we define color palettes for our celltypes and our genes of interest. 
+
+```{r}
+palette_heatmap <- paletteer::paletteer_d("wesanderson::Zissou1")
+palette_timepoint <- paletteer::paletteer_d("ggsci::category20_d3")
+palette_cluster <- paletteer::paletteer_d("ggsci::default_igv")
+palette_lineage <- paletteer::paletteer_d("MetBrewer::Juarez")
+```
+
+# Helper functions {#sec-fns}
+
+This helper function allows us to generate depth-normalized and log1p-transformed fitted values for a given set of genes using the fitted models from `tradeSeq`. 
+
+```{r}
+tradeSeqFit <- function(ts.models = NULL, 
+                        genes = NULL, 
+                        cell.offset = NULL, 
+                        pt.vec = NULL, 
+                        expr.mat = NULL, 
+                        cell.metadata = NULL) {
+  ts_pred_list <- purrr::map(seq(ts.models[genes]), \(g) {
+    pred_df <- as.data.frame(predict(ts.models[[genes[g]]])) %>% 
+               magrittr::set_colnames(c("tradeSeq_pred_link")) %>% 
+               dplyr::mutate(cell = colnames(expr.mat), 
+                             gene = genes[g], 
+                             before = 1) %>% 
+               dplyr::mutate(tradeSeq_pred = exp(tradeSeq_pred_link) * cell.offset, 
+                             tradeSeq_pred_log1p = log1p(tradeSeq_pred), 
+                             rna = as.numeric(expr.mat@assays$RNA$counts[genes[g], ]) * cell_offset, 
+                             rna_log1p = log1p(rna), 
+                             pt = pt.vec) %>% 
+               dplyr::bind_cols(cell.metadata) %>% 
+               magrittr::set_rownames(.$cell)
+    return(pred_df)
+  })
+  ts_pred_df <- purrr::reduce(ts_pred_list, rbind) %>% 
+                dplyr::mutate(gene = factor(gene, levels = genes))
+  return(ts_pred_df)
+}
+```
+
+Our next helper function provides a dataset that can be used to create `Seurat`-style dotplots of marker gene expression. 
+
+```{r}
+dotPlotData <- function(seu.obj = NULL, 
+                        de.genes = NULL, 
+                        id.var = "seurat_clusters", 
+                        id.var.levels = NULL) {
+  # check inputs 
+  if (is.null(seu.obj) || is.null(de.genes)) { stop("Arguments to dotPlotData() are missing.") }
+  if (!id.var %in% colnames(seu.obj@meta.data)) { stop("Please provide a valid meta.data grouping variable.") }
+  seu.obj@meta.data$temp_id <- seu.obj@meta.data[, id.var]
+  # clean data 
+  count_data <- seu.obj@assays[[Seurat::DefaultAssay(seu.obj)]]$data[de.genes, , drop = FALSE]
+  count_data_sum <- Matrix::t(count_data) %>% 
+                    as.data.frame() %>% 
+                    dplyr::mutate(cell_name = rownames(.), .before = 1) %>% 
+                    tidyr::pivot_longer(cols = !cell_name, 
+                                        names_to = "gene", 
+                                        values_to = "exp") %>% 
+                    dplyr::mutate(exp = expm1(exp)) %>% 
+                    dplyr::inner_join((dplyr::select(seu.obj@meta.data, 
+                                                     cell, 
+                                                     temp_id)), 
+                                       by = c("cell_name" = "cell")) %>% 
+                    dplyr::relocate(cell_name, 
+                                    temp_id, 
+                                    gene,
+                                    exp) %>% 
+                    dplyr::with_groups(c(temp_id, gene), 
+                                       dplyr::summarise, 
+                                       mean_exp = mean(exp), 
+                                       prop_exp_cluster = mean(exp > 0)) %>% 
+                    dplyr::with_groups(gene, 
+                                       dplyr::mutate, 
+                                       scaled_mean_exp = scale(mean_exp)) %>% 
+                    dplyr::mutate(scaled_mean_exp = dplyr::case_when(scaled_mean_exp > 3 ~ 3, 
+                                                                     scaled_mean_exp < -3 ~ -3, 
+                                                                     TRUE ~ scaled_mean_exp), 
+                                  gene = factor(gene, levels = unique(de.genes)), 
+                                  prop_exp_cluster = prop_exp_cluster * 100) %>% 
+                    dplyr::select(temp_id, 
+                                  gene,
+                                  mean_exp, 
+                                  scaled_mean_exp, 
+                                  prop_exp_cluster) 
+  if (!is.null(id.var.levels)) {
+    count_data_sum <- dplyr::mutate(count_data_sum, 
+                                    temp_id = factor(temp_id, levels = id.var.levels))
+  }
+  count_data_sum <- dplyr::arrange(count_data_sum, 
+                                   temp_id, 
+                                   gene)
+  colnames(count_data_sum)[colnames(count_data_sum) == "temp_id"] <- id.var
+  return(count_data_sum)
+}
+```
+
+# Data {#sec-data}
+
+## Preprocessed objects
+
+First we read in our processed `Seurat` object, and create some objects that we'll need to use `scLANE`, along with some tables we'll use throughout our various plots. 
+
+```{r}
+seu_fish <- readRDS("../../data/zebrafish/seu_fish.Rds")
+cell_offset <- createCellOffset(seu_fish)
+```
+
+## `Slingshot` output
+
+```{r}
+sling_res <- readRDS("../../data/zebrafish/sling_res.Rds")
+sling_curves <- slingCurves(sling_res, as.df = TRUE)
+sling_mst <- slingMST(sling_res, as.df = TRUE)
+sling_pt <- slingPseudotime(sling_res) %>%
+            as.data.frame() %>%
+            mutate(cell = rownames(.),
+                   across(contains("Lineage"), \(x) (x - min(x, na.rm = T)) / (max(x, na.rm = T) - min(x, na.rm = T))), 
+                   .before = 1) %>%
+            rowwise() %>%
+            mutate(PT_Overall = mean(c_across(contains("Lineage")), na.rm = TRUE)) %>%
+            ungroup()
+pt_df <- select(sling_pt, -c(PT_Overall, cell)) %>% 
+         as.data.frame() %>% 
+         magrittr::set_rownames(seu_fish$cell) %>% 
+         magrittr::set_colnames(c("PT_P", "PT_N"))
+embed_df <- data.frame(cell = seu_fish$cell, 
+                       cell_lineage = seu_fish$lineages, 
+                       cell_timepoint = seu_fish$timepoint, 
+                       cluster = seu_fish$seurat_clusters, 
+                       f1 = seu_fish@reductions$fdg@cell.embeddings[, 1], 
+                       f2 = seu_fish@reductions$fdg@cell.embeddings[, 2], 
+                       PT_P = sling_pt$Lineage1, 
+                       PT_N = sling_pt$Lineage2, 
+                       mean_PT = sling_pt$PT_Overall)
+```
+
+## `scLANE` output
+
+We read in the fitted models from `scLANE` that we generated earlier.
+
+```{r}
+scLANE_models <- readRDS("../../data/zebrafish/scLANE_models.Rds")
+scLANE_de_res<- getResultsDE(scLANE_models) %>% 
+                mutate(Lineage_Name = if_else(Lineage == "A", 
+                                              "Prechordal Plate Lineage", 
+                                              "Notochord Lineage")) 
+```
+
+## `tradeSeq` output
+
+Finally, we import the processed models from `tradeSeq`. 
+
+```{r}
+ts_models <- readRDS("../../data/zebrafish/ts_models.Rds")
+ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
+                             arrange(desc(waldStat)) %>% 
+                             mutate(gene = rownames(.), 
+                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
+                             relocate(gene)
+```
+
+# Supplementary Figure 3 {#sec-fig3}
+
+## A
+
+```{r}
+#| fig-width: 3.6
+#| fig-height: 2.5
+S_Fig_3A <- ggplot(embed_df, aes(x = cell_timepoint, y = mean_PT, color = cell_timepoint)) + 
+            ggbeeswarm::geom_quasirandom(size = 1.25, 
+                                         alpha = 0.5, 
+                                         stroke = 0, 
+                                         show.legend = FALSE) + 
+            stat_summary(fun = "mean", 
+                         geom = "point", 
+                         color = "black", 
+                         size = 2) + 
+            scale_color_manual(values = palette_timepoint) + 
+            labs(x = "Hours post-fertilization", y = "Mean Pseudotime") + 
+            theme_scLANE(base.size = 9)
+S_Fig_3A
+```
+
+```{r}
+ggsave("Suppl_Figure_3A.png",
+       plot = S_Fig_3A, 
+       device = "png", 
+       path = "../png/",
+       width = 3.6, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 300)
+```
+
+## B
+
+```{r}
+#| fig-width: 3.6
+#| fig-height: 2.5
+S_Fig_3B <- ggplot(embed_df, aes(x = f1, y = f2, color = as.numeric(cell_timepoint))) + 
+            geom_point(size = 1.25, alpha = 0.5, stroke = 0) + 
+            scale_color_gradientn(colors = paletteer::paletteer_d("MetBrewer::OKeeffe1", direction = -1)) + 
+            labs(x = "FA 1", y = "FA 2", color = "Hours post-fertilization") + 
+            theme_scLANE(base.size = 9) + 
+            theme(axis.text = element_blank(), 
+                  axis.ticks = element_blank())
+S_Fig_3B
+```
+
+```{r}
+ggsave("Suppl_Figure_3B.png",
+       plot = S_Fig_3B, 
+       device = "png", 
+       path = "../png/",
+       width = 3.6, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 300)
+```
+
+## C
+
+```{r}
+#| fig-width: 7.3
+#| fig-height: 2.33
+Idents(seu_fish) <- "lineages"
+celltype_markers <- FindAllMarkers(seu_fish, 
+                                   logfc.threshold = 0.5, 
+                                   test.use = "wilcox", 
+                                   only.pos = TRUE, 
+                                   min.pct = 0.1, 
+                                   random.seed = 312, 
+                                   verbose = FALSE)
+celltype_markers_top7 <- arrange(celltype_markers, 
+                                 cluster, 
+                                 p_val_adj) %>% 
+                         with_groups(cluster, 
+                                     slice_head, 
+                                     n = 7)
+dotplot_counts <- dotPlotData(seu_fish,
+                              de.genes = unique(celltype_markers_top7$gene),
+                              id.var = "lineages", 
+                              id.var.levels = unique(seu_fish$lineages)) %>% 
+                  mutate(gene = tolower(gene), 
+                         gene = factor(gene, levels = unique(gene)))
+S_Fig_3C <- ggplot(dotplot_counts, aes(x = gene, y = lineages)) + 
+            geom_point(aes(color = scaled_mean_exp, size = prop_exp_cluster)) + 
+            scale_x_discrete(position = "top") + 
+            scale_color_gradientn(colors = palette_heatmap) +
+            scale_radius(range = c(0, 5), labels = scales::label_percent(scale = 1, accuracy = 1)) + 
+            labs(color = "Scaled Mean\nExpression", 
+                 size = "Frequency of\nExpression") + 
+            theme_scLANE(base.size = 9) + 
+            theme(axis.text.x = element_text(face = "italic", angle = 45, vjust = 1, hjust = 0), 
+                  axis.title = element_blank(), 
+                  panel.grid.major.y = element_line(color = "grey90", linewidth = 0.4), 
+                  legend.position = "right", 
+                  legend.justification = "center", legend.box = "horizontal") + 
+            guides(color = guide_colorbar(title.position = "top", 
+                                          barheight = unit(0.8, units = "in"), 
+                                          barwidth = unit(0.2, units = "in"), 
+                                          title.hjust = 0), 
+                   size = guide_legend(title.position = "top", title.hjust = 0))
+S_Fig_3C
+```
+
+```{r}
+ggsave("Suppl_Figure_3C.png",
+       plot = S_Fig_3C, 
+       device = "png", 
+       path = "../png/",
+       width = 7.3, 
+       height = 2.33, 
+       units = "in", 
+       dpi = 300)
+```
+
+## D
+
+```{r}
+#| fig-width: 7.3
+#| fig-height: 4
+ts_pattern_res <- patternTest(ts_models) %>% 
+                  mutate(gene = rownames(.), .before = 1) %>% 
+                  arrange(desc(waldStat)) %>% 
+                  mutate(pval_adj = p.adjust(pvalue))
+S_Fig_3D <- getFittedValues(scLANE_models,
+                            genes = ts_pattern_res$gene[1:6], 
+                            pt = pt_df,
+                            expr.mat = seu_fish, 
+                            size.factor.offset = cell_offset, 
+                            cell.meta.data = select(seu_fish@meta.data, lineages)) %>% 
+            mutate(lineage_label = if_else(lineage == "A", "Prechordal Plate", "Notochord"), 
+                   gene = tolower(gene)) %>% 
+            ggplot(aes(x = pt, y = rna_log1p)) + 
+            facet_grid(lineage_label ~ gene) + 
+            geom_point(aes(color = lineages), 
+                       size = 1, 
+                       stroke = 0, 
+                       alpha = 0.75) + 
+            geom_line(aes(y = scLANE_pred_log1p),
+                      color = "black", 
+                      linewidth = 0.75, 
+                      show.legend = FALSE) + 
+            scale_x_continuous(labels = scales::label_number(accuracy = 0.1)) + 
+            scale_y_continuous(labels = scales::label_number(accuracy = 1)) + 
+            scale_color_manual(values = palette_lineage) + 
+            labs(x = "Pseudotime", y = "Normalized Expression") + 
+            theme_scLANE(base.size = 9) + 
+            theme(strip.text.x = element_text(face = "italic"), 
+                  legend.title = element_blank(), 
+                  legend.position = "bottom", 
+                  legend.direction = "horizontal") + 
+            guides(color = guide_legend(override.aes = list(size = 3, alpha = 1, stroke = 1)))
+S_Fig_3D
+```
+
+```{r}
+ggsave("Suppl_Figure_3D.png",
+       plot = S_Fig_3D, 
+       device = "png", 
+       path = "../png/",
+       width = 7.3, 
+       height = 4, 
+       units = "in", 
+       dpi = 300)
+```
+
+# Magic numbers {#sec-nums}
+
+```{r}
+sum(ts_pattern_res$pval_adj < 0.01, na.rm = TRUE)
+```
+
+# Session info {#sec-SI}
+
+```{r}
+sessioninfo::session_info()
+```

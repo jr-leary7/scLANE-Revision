@@ -1,0 +1,919 @@
+---
+title: "Processing Pipeline for B-cell Data from Popescu *et al* (2019)"
+subtitle: "Bacher Group"
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(comment = NA)
+reticulate::use_condaenv("../../../../py_envs/scLANE_env2/", required = TRUE)
+options(future.globals.maxSize = 1e20)
+set.seed(312)  # lucky seed
+```
+
+# Libraries {#sec-libs}
+
+Before we do anything else we load in the necessary software packages in both R & Python.
+
+## R
+
+```{r}
+#| message: false
+#| warning: false
+library(dplyr)       # data manipulation
+library(Seurat)      # scRNAseq tools
+library(scLANE)      # trajectory DE
+library(ggplot2)     # pretty plots
+library(biomaRt)     # gene annotation
+library(tradeSeq)    # more trajectory DE
+library(patchwork)   # plot alignment
+library(slingshot)   # pseudotime estimation
+library(reticulate)  # Python interface
+select <- dplyr::select
+rename <- dplyr::rename
+```
+
+## Python
+
+```{python}
+#| message: false
+#| warning: false
+import scvi                                                     # integration
+import warnings                                                 # filter out warnings
+import numpy as np                                              # linear algebra tools
+import scanpy as sc                                             # scRNA-seq tools
+import pandas as pd                                             # DataFrames
+import anndata as ad                                            # scRNA-seq data structures
+import scvelo as scv                                            # RNA velocity
+import cellrank as cr                                           # cell fate estimation
+import matplotlib.pyplot as plt                                 # pretty plots
+from scipy.io import mmread, mmwrite                            # sparse matrix IO
+from cellrank.estimators import GPCCA                           # CellRank estimator
+from scipy.sparse import coo_matrix, csr_matrix                 # sparse matrices
+from cellrank.kernels import PseudotimeKernel, CytoTRACEKernel  # CellRank kernels
+```
+
+Here we set a few global variables to reduce the amount of printed output caused by our Python code. 
+
+```{python}
+warnings.simplefilter('ignore', category=UserWarning)
+sc.settings.verbosity = 0
+scv.settings.verbosity = 0
+cr.settings.verbosity = 0
+```
+
+# Visualization tools {#sec-viz-tools}
+
+To make our visualizations prettier we'll define some consistent color palettes, and set a theme for `matplotlib` that matches `ggplot2::theme_classic()`. 
+
+## Color palettes
+
+```{r}
+palette_heatmap <- paletteer::paletteer_d("MetBrewer::Cassatt1", direction = -1)
+palette_celltype <- as.character(paletteer::paletteer_d("ggsci::category10_d3"))[-c(1:6)]
+palette_cluster <- paletteer::paletteer_d("ggsci::default_igv")
+```
+
+## Theme for `matplotlib`
+
+```{python}
+base_size = 12
+plt.rcParams.update({
+    # font
+    'font.size': base_size, 
+    'font.weight': 'normal',
+    # figure
+    'figure.dpi': 320, 
+    'figure.edgecolor': 'white', 
+    'figure.facecolor': 'white', 
+    'figure.figsize': (6, 4), 
+    'figure.constrained_layout.use': True,
+    # axes
+    'axes.edgecolor': 'black',
+    'axes.grid': False,
+    'axes.labelpad': 2.75,
+    'axes.labelsize': base_size * 0.8,
+    'axes.linewidth': 1.5,
+    'axes.spines.right': False,
+    'axes.spines.top': False,
+    'axes.titlelocation': 'left',
+    'axes.titlepad': 11,
+    'axes.titlesize': base_size,
+    'axes.titleweight': 'normal',
+    'axes.xmargin': 0.1, 
+    'axes.ymargin': 0.1, 
+    # legend
+    'legend.borderaxespad': 1,
+    'legend.borderpad': 0.5,
+    'legend.columnspacing': 2,
+    'legend.fontsize': base_size * 0.8,
+    'legend.frameon': False,
+    'legend.handleheight': 1,
+    'legend.handlelength': 1.2,
+    'legend.labelspacing': 1,
+    'legend.title_fontsize': base_size, 
+    'legend.markerscale': 1.5
+})
+```
+
+# Helper functions {#sec-fns}
+
+We first define a utility function to make our plot legends cleaner to read & easier to make. 
+
+```{r}
+guide_umap <- function(key.size = 4) {
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size,
+                                                                    alpha = 1, 
+                                                                    stroke = 0.25)))
+}
+```
+
+# Data {#sec-data}
+
+## Import hematopoesis data
+
+We start by importing the `AnnData` object we downloaded from the Human Developmental Cell Atlas portal; it contains a variety of celltypes beyond just the myeloid lineage which we're interested. 
+
+```{python}
+ad_liver = ad.read_h5ad('../../data/hematopoesis/fetal_liver_alladata.h5ad')
+```
+
+We subset to just the B-cell lineage, and remove cells with a percentage mitochondrial reads greater than 15%.
+
+```{python}
+ad_bcell = ad_liver[ad_liver.obs['cell.labels'].isin(['HSC_MPP', 'pre-B cell', 'pro-B cell', 'Pre pro B cell', 'B cell'])]
+ad_bcell.obs['celltype'] = (
+    ad_bcell.obs['cell.labels']
+              .map(lambda x: {'HSC_MPP': 'HSC', 'pre-B cell': 'Pre B-cell', 'pro-B cell': 'Pro B-cell', 'Pre pro B cell': 'Pre Pro B-cell', 'B cell': 'B-cell'}.get(x, x))
+              .astype('category')
+)
+ad_bcell = ad_bcell[ad_bcell.obs['percent.mito'] < 0.15]
+ad_bcell.layers['counts'] = ad_bcell.X.copy() 
+ad_bcell.layers['raw_counts'] = ad_bcell.X.copy() 
+ad_bcell.layers['spliced'] = ad_bcell.X.copy() 
+ad_bcell.layers['unspliced'] = ad_bcell.X.copy()
+ad_bcell.raw = ad_bcell
+```
+
+## Preprocessing {#sec-preprocess}
+
+We'll begin our analysis by running our cells through a standard preprocessing pipeline composed of QC, integration, normalization, HVG selection, dimension reduction, & clustering. 
+
+### QC
+
+We filter out cells with a sequencing depth of less than 1,000, then remove out genes expressed in less than 5 cells. 
+
+```{python}
+sc.pp.filter_cells(ad_bcell, min_counts=1000)
+sc.pp.filter_genes(ad_bcell, min_cells=5)
+```
+
+### HVG selection
+
+Here we select the top 4000 most highly-variable genes (HVGs), which we'll use as input to PCA, integration, etc.  
+
+```{python}
+sc.pp.highly_variable_genes(
+    ad_bcell, 
+    n_top_genes=4000, 
+    flavor='seurat_v3', 
+    layer='counts',
+    subset=True
+)
+```
+
+### Integration with `scVI`
+
+Using the `scVI` library, we perform celltype-aware integration across batches by training a variational autoencoder (VAE) for 150 epochs. This provides us with a 20-dimensional integrated latent space embedding that is (hopefully) free of batch effects. 
+
+```{python}
+#| results: hide
+scvi.settings.seed = 312
+scvi.settings.num_threads = 12
+scvi.model.SCVI.setup_anndata(
+    ad_bcell, 
+    layer='counts', 
+    batch_key='fetal.ids', 
+    labels_key='celltype'
+)
+int_model = scvi.model.SCVI(
+    ad_bcell, 
+    n_layers=2, 
+    n_hidden=72, 
+    n_latent=20, 
+    gene_likelihood='nb', 
+    dispersion='gene-label'
+)
+int_model.train(
+    early_stopping=True,
+    accelerator='cpu', 
+    max_epochs=150
+)
+ad_bcell.obsm['X_scVI'] = int_model.get_latent_representation()
+```
+
+We plot the first two scVI components below. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: scVI embedding colored by celltype. 
+#| label: fig-scvi-embed
+sc.pl.embedding(
+    ad_bcell, 
+    basis='scVI', 
+    color='celltype',
+    title='', 
+    frameon=True, 
+    size=30, 
+    alpha=0.5, 
+    show=False
+)
+plt.gca().set_xlabel('scVI 1')
+plt.gca().set_ylabel('scVI 2')
+plt.show()
+```
+
+### Normalization
+
+We next depth- and log1p-normalize the mRNA counts matrix. 
+
+```{python}
+ad_bcell.X = sc.pp.normalize_total(ad_bcell, target_sum=1e4, inplace=False)['X']
+sc.pp.log1p(ad_bcell)
+```
+
+### PCA embedding
+
+Using PCA we generate a 50-dimensional linear reduction of the normalized counts. 
+
+```{python}
+sc.pp.scale(ad_bcell)
+sc.tl.pca(
+    ad_bcell, 
+    n_comps=50, 
+    random_state=312, 
+    use_highly_variable=True
+)
+```
+
+Plotting the first two PCs shows some separation by celltype. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: PCA embedding colored by celltype. 
+#| label: fig-pca-embed
+sc.pl.embedding(
+    ad_bcell, 
+    basis='pca', 
+    color='celltype',
+    title='', 
+    frameon=True, 
+    size=30, 
+    alpha=0.5,
+    show=False
+)
+plt.gca().set_xlabel('PC 1')
+plt.gca().set_ylabel('PC 2')
+plt.show()
+```
+
+### SNN graph estimation
+
+Next, we identify the 50 nearest-neighbors (NNs) for each cell using the cosine distance in the `scVI` latent space. 
+
+```{python}
+sc.pp.neighbors(
+    ad_bcell, 
+    n_neighbors=50,
+    n_pcs=None,  
+    metric='cosine', 
+    random_state=312, 
+    use_rep='X_scVI'
+)
+```
+
+### Clustering
+
+Using the Leiden algorithm we partition the SNN graph into clusters. 
+
+```{python}
+sc.tl.leiden(
+    ad_bcell, 
+    resolution=0.3, 
+    random_state=312
+)
+```
+
+The identified clusters roughly match our celltypes. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: PCA embedding colored by Leiden cluster. 
+#| label: fig-pca-leiden
+sc.pl.embedding(
+    ad_bcell, 
+    basis='pca', 
+    color='leiden',
+    title='', 
+    frameon=True, 
+    size=30, 
+    alpha=0.5,
+    show=False
+)
+plt.gca().set_xlabel('PC 1')
+plt.gca().set_ylabel('PC 2')
+plt.show()
+```
+
+### Moment-based imputation
+
+Moving on, we create smoothed versions of the counts across each cell's 30 NNs. 
+
+```{python}
+scv.pp.moments(
+    ad_bcell, 
+    n_pcs=None,
+    use_rep='X_scVI', 
+    n_neighbors=30
+)
+```
+
+### Undirected PAGA embedding
+
+We use the PAGA algorithm to generate a graph abstraction of the relationships between celltypes. 
+
+```{python}
+sc.tl.paga(ad_bcell, groups='celltype')
+```
+
+Visualizing the results shows a pretty linear structure that matches what we expect biologically. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: PAGA embedding colored by celltype. Lines are weighted by (undirected) connectivity strength.  
+#| label: fig-paga-embed
+sc.pl.paga(
+    ad_bcell, 
+    fontoutline=True, 
+    fontsize=12, 
+    frameon=True, 
+    random_state=312, 
+    show=False
+)
+plt.gca().set_xlabel('PAGA 1')
+plt.gca().set_ylabel('PAGA 2')
+plt.show()
+```
+
+### UMAP embedding
+
+We then create a nonlinear dimension reduction of the data using the UMAP algorithm. 
+
+```{python}
+sc.tl.umap(ad_bcell, random_state=312)
+```
+
+In UMAP space the transitions between celltypes are relatively clear and well-represented, though there's a lack of connectivity between the progenitor celltypes and the mature B-cells which isn't ideal. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: UMAP embedding colored by celltype. 
+#| label: fig-umap-embed
+sc.pl.embedding(
+    ad_bcell, 
+    basis='umap', 
+    color='celltype',
+    title='',
+    frameon=True, 
+    size=30, 
+    alpha=0.5,
+    show=False
+)
+plt.gca().set_xlabel('UMAP 1')
+plt.gca().set_ylabel('UMAP 2')
+plt.show()
+```
+
+### Force-directed graph embedding
+
+Using the ForceAtlas2 algorithm we generate a 2-dimensional graph layout of our cells. 
+
+```{python}
+#| message: false
+#| warning: false
+sc.tl.draw_graph(
+    ad_bcell, 
+    layout='fa', 
+    random_state=312
+)
+```
+
+The force-directed graph embedding suffers from the same issues as the UMAP embedding, namely lack of connectivity between celltypes. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: Force-directed graph embedding colored by celltype. 
+#| label: fig-graph-embed
+sc.pl.draw_graph(
+    ad_bcell, 
+    color='celltype', 
+    title='', 
+    size=30, 
+    alpha=0.5, 
+    show=False, 
+    frameon=True
+)
+plt.gca().set_xlabel('FA 1')
+plt.gca().set_ylabel('FA 2')
+plt.show()
+```
+
+### Diffusion map embedding
+
+Our last embedding will be generated using diffusion maps, which explicitly attempts to preserve transitional structures in the data. 
+
+```{python}
+sc.tl.diffmap(
+    ad_bcell, 
+    random_state=312, 
+    n_comps=16
+)
+ad_bcell.obsm['X_diffmap_old'] = ad_bcell.obsm['X_diffmap']
+ad_bcell.obsm['X_diffmap'] = ad_bcell.obsm['X_diffmap'][:, 1:] 
+```
+
+The diffusion map embedding seems to correctly preserve transitions between B-cell subtypes. We'll use this embedding going forwards.
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: Diffusion map embedding colored by celltype. 
+#| label: fig-diffmap-embed
+sc.pl.embedding(
+    ad_bcell, 
+    basis='diffmap', 
+    color='celltype',
+    title='', 
+    frameon=True, 
+    size=30, 
+    alpha=0.5, 
+    components='1,2', 
+    show=False
+)
+plt.gca().set_xlabel('DC 1')
+plt.gca().set_ylabel('DC 2')
+plt.show()
+```
+
+### Diffusion pseudotime estimation
+
+We next compute a diffusion pseudotime estimate for each cell using the first diffusion component. 
+
+```{python}
+ad_bcell.uns['iroot'] = np.argmax(ad_bcell.obsm['X_diffmap'][:, 0])
+sc.tl.dpt(ad_bcell, n_dcs=1)
+```
+
+Overall the diffusion pseudotime captures B-cell differentiation progression well. We'll use this cellular ordering for our trajectory DE testing. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: Diffusion map embedding colored by diffusion pseudotime.
+#| label: fig-diffmap-pseudotime
+sc.pl.embedding(
+    ad_bcell, 
+    basis='diffmap', 
+    color='dpt_pseudotime',
+    title='', 
+    frameon=True, 
+    size=30, 
+    alpha=0.5, 
+    components='1,2', 
+    show=False
+)
+plt.gca().set_xlabel('DC 1')
+plt.gca().set_ylabel('DC 2')
+plt.show()
+```
+
+## Save preprocessed data
+
+We save the processed `AnnData` object to disk. 
+
+```{python}
+ad_bcell.write_h5ad('../../data/bcell/ad_bcell.h5ad')
+```
+
+We also save the embeddings, counts matrix, metadata, etc. so that we can create a `Seurat` object. 
+
+```{python}
+ad_bcell.obs.reset_index(inplace=False).rename(columns={'index': 'cell'}).to_csv('../../data/bcell/conversion_files/cell_metadata.csv')
+ad_bcell.var.reset_index(inplace=False).rename(columns={'index': 'gene'}).to_csv('../../data/bcell/conversion_files/gene_metadata.csv')
+pd.DataFrame(ad_bcell.obsm['X_draw_graph_fa']).reset_index(inplace=False).to_csv('../../data/bcell/conversion_files/graph_embed.csv')
+pd.DataFrame(ad_bcell.obsm['X_umap']).reset_index(inplace=False).to_csv('../../data/bcell/conversion_files/umap_embed.csv')
+pd.DataFrame(ad_bcell.obsm['X_pca']).reset_index(inplace=False).to_csv('../../data/bcell/conversion_files/pca_embed.csv')
+pd.DataFrame(ad_bcell.obsm['X_scVI']).reset_index(inplace=False).to_csv('../../data/bcell/conversion_files/scvi_embed.csv')
+pd.DataFrame(ad_bcell.obsm['X_diffmap']).reset_index(inplace=False).to_csv('../../data/bcell/conversion_files/diffmap_embed.csv')
+mmwrite('../../data/bcell/conversion_files/raw_counts.mtx', a=ad_bcell.layers['raw_counts'])
+```
+
+# Analysis {#sec-analysis}
+
+## Read data into R
+
+We start our analysis by importing the preprocessed data from Python into R. Expand the code block for details. 
+
+```{r}
+#| message: false
+#| warning: false
+#| code-fold: true
+cell_metadata <- readr::read_csv("../../data/bcell/conversion_files/cell_metadata.csv", 
+                                 show_col_types = FALSE, 
+                                 col_select = -1) %>% 
+                 as.data.frame() %>% 
+                 magrittr::set_rownames(.$cell)
+gene_metadata <- readr::read_csv("../../data/bcell/conversion_files/gene_metadata.csv", 
+                                 show_col_types = FALSE, 
+                                 col_select = -1)
+embed_PCA <- readr::read_csv("../../data/bcell/conversion_files/pca_embed.csv",
+                             show_col_types = FALSE, 
+                             col_select = -c(1:2)) %>% 
+             as.data.frame() %>% 
+             magrittr::set_colnames(paste0("PC", 1:ncol(.))) %>% 
+             magrittr::set_rownames(cell_metadata$cell)
+embed_PCA <- CreateDimReducObject(embeddings = as.matrix(embed_PCA),
+                                  key = "PC_", 
+                                  global = TRUE, 
+                                  assay = "RNA")
+embed_FA <- readr::read_csv("../../data/bcell/conversion_files/graph_embed.csv", 
+                            show_col_types = FALSE, 
+                            col_select = -c(1:2)) %>% 
+            as.data.frame() %>% 
+            magrittr::set_colnames(paste0("FA", 1:ncol(.))) %>% 
+            magrittr::set_rownames(cell_metadata$cell)
+embed_FA <- CreateDimReducObject(embeddings = as.matrix(embed_FA),
+                                 key = "FA_", 
+                                 global = TRUE, 
+                                 assay = "RNA")
+embed_UMAP <- readr::read_csv("../../data/bcell/conversion_files/umap_embed.csv", 
+                              show_col_types = FALSE, 
+                               col_select = -c(1:2)) %>% 
+              as.data.frame() %>% 
+              magrittr::set_colnames(paste0("UMAP", 1:ncol(.))) %>% 
+              magrittr::set_rownames(cell_metadata$cell)
+embed_UMAP <- CreateDimReducObject(embeddings = as.matrix(embed_UMAP),
+                                   key = "UMAP_", 
+                                   global = TRUE, 
+                                   assay = "RNA")
+embed_diffmap <- readr::read_csv("../../data/bcell/conversion_files/diffmap_embed.csv", 
+                                 show_col_types = FALSE, 
+                                  col_select = -c(1:2)) %>% 
+                 as.data.frame() %>% 
+                 magrittr::set_colnames(paste0("DC", 1:ncol(.))) %>% 
+                 magrittr::set_rownames(cell_metadata$cell)
+embed_diffmap <- CreateDimReducObject(embeddings = as.matrix(embed_diffmap),
+                                      key = "DC_", 
+                                      global = TRUE, 
+                                      assay = "RNA")
+embed_scVI <- readr::read_csv("../../data/bcell/conversion_files/scvi_embed.csv", 
+                              show_col_types = FALSE, 
+                               col_select = -c(1:2)) %>% 
+              as.data.frame() %>% 
+              magrittr::set_colnames(paste0("scVI", 1:ncol(.))) %>% 
+              magrittr::set_rownames(cell_metadata$cell)
+embed_scVI <- CreateDimReducObject(embeddings = as.matrix(embed_scVI),
+                                   key = "scVI_", 
+                                   global = TRUE, 
+                                   assay = "RNA")
+raw_counts <- Matrix::t(Matrix::readMM("../../data/bcell/conversion_files/raw_counts.mtx"))
+colnames(raw_counts) <- cell_metadata$cell
+rownames(raw_counts) <- gene_metadata$gene
+raw_counts <- CreateAssayObject(counts = raw_counts,
+                                min.cells = 0,
+                                min.features = 0, 
+                                key = "rna")
+```
+
+We can now create a `Seurat` object, to which we add our various embeddings and metadata. After adding all the various bits and pieces, we normalize the raw counts and re-identify HVGs. 
+
+```{r}
+#| message: false
+#| warning: false
+seu_bcell <- CreateSeuratObject(raw_counts, 
+                                assay = "RNA",
+                                meta.data = cell_metadata, 
+                                project = "bcell", 
+                                min.cells = 0, 
+                                min.features = 0)
+seu_bcell@meta.data <- mutate(seu_bcell@meta.data, 
+                              celltype = factor(celltype, levels = c("HSC", 
+                                                                     "Pre Pro B-cell", 
+                                                                     "Pro B-cell", 
+                                                                     "Pre B-cell", 
+                                                                     "B-cell")))
+seu_bcell@reductions$pca <- embed_PCA
+seu_bcell@reductions$diffmap <- embed_diffmap
+seu_bcell@reductions$fa <- embed_FA
+seu_bcell@reductions$umap <- embed_UMAP
+seu_bcell@reductions$scvi <- embed_scVI
+seu_bcell <- NormalizeData(seu_bcell, verbose = FALSE) %>% 
+             FindVariableFeatures(selection.method = "vst", verbose = FALSE)
+```
+
+## Trajectory DE testing
+
+We use the `scLANE` package to perform trajectory DE testing across pseudotime time for the top HVGs with mean expression greater than 0.05. Since our dataset is of moderate size and composed of samples from multiple subjects we'll utilize the GEE mode of `scLANE`. 
+
+```{r}
+cell_offset <- createCellOffset(seu_bcell)
+pt_df <- data.frame(DPT = seu_bcell$dpt_pseudotime)
+hvgs <- HVFInfo(seu_bcell) %>% 
+        filter(mean > 0.05) %>% 
+        arrange(desc(variance.standardized)) %>% 
+        mutate(gene = rownames(.)) %>% 
+        select(gene, 
+               mean, 
+               variance, 
+               variance.standardized) %>% 
+        slice_head(n = 4000)
+seu_bcell <- sortObservations(seu_bcell, 
+                              pt = pt_df$DPT, 
+                              id.vec = seu_bcell$fetal.ids)
+scLANE_models <- testDynamic(seu_bcell, 
+                             pt = pt_df, 
+                             genes = hvgs$gene, 
+                             size.factor.offset = cell_offset, 
+                             is.gee = TRUE, 
+                             id.vec = seu_bcell$fetal.ids, 
+                             n.cores = 6L,
+                             verbose = FALSE)
+scLANE_de_res <- getResultsDE(scLANE_models)
+```
+
+## `tradeSeq` DE analysis
+
+```{r}
+ts_start <- Sys.time()
+bioc_par <- BiocParallel::MulticoreParam(workers = 6L, RNGseed = 312)
+RNA_counts <- as.matrix(seu_bcell@assays$RNA$counts)[hvgs$gene, ]
+k_eval <- evaluateK(RNA_counts, 
+                    pseudotime = pt_df, 
+                    cellWeights = matrix(rep(1, nrow(pt_df)), ncol = 1), 
+                    offset = log(1 / cell_offset), 
+                    k = 3:10, 
+                    plot = FALSE, 
+                    nGenes = 500, 
+                    verbose = FALSE, 
+                    parallel = TRUE, 
+                    BPPARAM = bioc_par)
+best_k <- c(3:10)[which.min(abs(colMeans(k_eval - rowMeans(k_eval))))]  # choose k w/ lowest MAD from mean AIC 
+ts_models <- fitGAM(RNA_counts, 
+                    pseudotime = pt_df, 
+                    cellWeights = matrix(rep(1, nrow(pt_df)), ncol = 1), 
+                    offset = log(1 / cell_offset), 
+                    nknots = best_k, 
+                    sce = FALSE, 
+                    parallel = TRUE, 
+                    verbose = FALSE, 
+                    BPPARAM = bioc_par)
+BiocParallel::bpstop(bioc_par)
+ts_end <- Sys.time()
+ts_diff <- ts_end - ts_start
+ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
+                             arrange(pvalue) %>% 
+                             mutate(gene = rownames(.), 
+                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
+                             relocate(gene)
+```
+
+The runtime for `tradeSeq` with `r best_k` knots per gene is: 
+
+```{r}
+ts_diff
+```
+
+## Cell fate analysis
+
+Lastly, we'll perform an analysis of cell fate specification using the `CellRank` Python package. 
+
+### CytoTRACE kernel 
+
+We begin by computing a CytoTRACE kernel; CytoTRACE uses the number of genes expressed in a cell as a proxy measurement for differentiation potential, with the assumption being that cells expressing more genes are more likely to be progenitor celltypes & vice versa.  
+
+```{python}
+#| results: hide
+ctk = CytoTRACEKernel(ad_bcell).compute_cytotrace()
+```
+
+We plot the CytoTRACE scores & pseudotime below.
+
+```{python}
+#| code-fold: true
+#| fig-cap: Diffusion map embedding colored by CytoTRACE score and pseudotime. Higher scores indicate higher differentiation potential. 
+#| label: fig-diffmap-cytotrace
+sc.pl.embedding(
+    ad_bcell,
+    basis='diffmap',
+    color=['ct_score', 'ct_pseudotime'],
+    color_map='magma', 
+    show=False, 
+    size=30, 
+    alpha=0.5, 
+    title=['CytoTRACE score', 'CytoTRACE Pseudotime']
+)
+plt.show()
+```
+
+Next, we estimate a cell-cell transition probability matrix. 
+
+```{python}
+#| results: hide
+ctk.compute_transition_matrix(threshold_scheme='soft', show_progress_bar=False)
+```
+
+Plotting the projection of that matrix on our diffusion map embedding shows messy but overall correct directionality. 
+
+```{python}
+#| code-fold: true
+#| fig-cap: Diffusion map embedding streamline plot showing differentiation directions as inferred from CytoTRACE scores.
+#| label: fig-project-CT
+ctk.plot_projection(
+  basis='diffmap', 
+  recompute=True, 
+  color='celltype',
+  title='',
+  legend_loc='right margin', 
+  size=30, 
+  alpha=0.5, 
+  linewidth=2, 
+  components='0,1',
+  frameon=True, 
+  show=False
+)
+plt.gca().set_xlabel('DC 1')
+plt.gca().set_ylabel('DC 2')
+plt.show()  
+```
+
+### Pseudotime kernel
+
+Next, we use the diffusion pseudotime estimates to create a pseudotime-based kernel and estimate another cell-cell transition probability matrix. 
+
+```{python}
+#| results: hide
+pk = PseudotimeKernel(ad_bcell, time_key='dpt_pseudotime')
+pk.compute_transition_matrix(threshold_scheme='soft', show_progress_bar=False)
+```
+
+Plotting the projection of the pseudotime kernel's transition probability matrix shows a more reasonable portrayal of differentiation directionality.
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: Diffusion map embedding overlaid with streamline arrows derived from Slingshot pseudotime.  
+#| label: fig-project-PT
+pk.plot_projection(
+  basis='diffmap', 
+  recompute=True, 
+  color='celltype',
+  title='',
+  legend_loc='right margin', 
+  size=30, 
+  alpha=0.75, 
+  linewidth=2, 
+  components='0,1',
+  frameon=True, 
+  show=False
+)
+plt.gca().set_xlabel('DC 1')
+plt.gca().set_ylabel('DC 2')
+plt.show()
+```
+
+### Combined kernel
+
+We combine the two kernel using unequal weighting, with the pseudotime kernel being given priority due to its better overall capture of differentiation. 
+
+```{python}
+ck = 0.3 * ctk + 0.7 * pk
+```
+
+We visualize the combined kernel's projection below. It seems to reliably portray the direction of differentiation in our dataset.
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: Diffusion map embedding overlaid with streamline arrows derived from the combined kernel. 
+#| label: fig-project-combined
+ck.plot_projection(
+  basis='diffmap', 
+  recompute=True, 
+  color='celltype',
+  title='',
+  legend_loc='right margin', 
+  size=30, 
+  alpha=0.75, 
+  linewidth=2, 
+  components='0,1',
+  frameon=True, 
+  show=False
+)
+plt.gca().set_xlabel('DC 1')
+plt.gca().set_ylabel('DC 2')
+plt.show()
+```
+
+We can also simulate random walks on the high-dimensional cell-cell graph starting from the HSC population. We see that nearly all of the random walks terminate in the mature B-cell population. 
+
+```{python}
+#| message: false
+#| warning: false
+#| fig-cap: Diffusion map embedding overlaid with random walks along the cell-cell graph derived from the combined kernel. Starting points are highlighted in black and ending points in yellow.  
+#| label: fig-RW-combined
+ck.plot_random_walks(
+    n_sims=200,
+    start_ixs={'celltype': 'HSC'},
+    basis='diffmap',
+    color='celltype',
+    legend_loc='right margin',
+    seed=312, 
+    frameon=True, 
+    title='', 
+    linewidth=0.5, 
+    linealpha=0.25, 
+    size=30, 
+    alpha=0.5, 
+    components='0,1',
+    ixs_legend_loc='upper', 
+    show_progress_bar=False
+)
+plt.gca().set_xlabel('DC 1')
+plt.gca().set_ylabel('DC 2')
+plt.show()
+```
+
+# Save data {#sec-save}
+
+Finally, we save our `Seurat` object, the output from `Slingshot`, and the models from `scLANE` and `tradeSeq`. 
+
+```{r}
+saveRDS(seu_bcell, file = "../../data/bcell/seu_bcell.Rds")
+saveRDS(scLANE_models, file = "../../data/bcell/scLANE_models.Rds")
+saveRDS(ts_models, file = "../../data/bcell/ts_models.Rds")
+```
+
+# Session info {#sec-SI}
+
+```{r}
+sessioninfo::session_info()
+```

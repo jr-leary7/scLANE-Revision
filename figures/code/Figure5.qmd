@@ -1,0 +1,381 @@
+---
+title: "Figure 5"
+subtitle: "Bacher Group"
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(comment = NA)
+reticulate::use_condaenv("../../../../py_envs/scLANE_env2/", required = TRUE)
+set.seed(312)  # lucky seed
+```
+
+# Libraries {#sec-libs}
+
+We begin by loading the prerequisite libraries needed to make our plots. 
+
+## R
+
+```{r}
+#| message: false
+#| warning: false
+library(purrr)      # functional programming
+library(dplyr)      # data manipulation
+library(scLANE)     # trajectory DE
+library(Seurat)     # scRNA-seq tools
+library(ggplot2)    # pretty plots
+library(biomaRt)    # gene annotation
+library(tradeSeq)   # more trajectory DE
+library(slingshot)  # pseudotime estimation
+rename <- dplyr::rename
+reduce <- purrr::reduce
+select <- dplyr::select
+```
+
+## Python
+
+```{python}
+#| message: false
+#| warning: false
+import warnings                                                 # filter out warnings
+import numpy as np                                              # linear algebra tools
+import scanpy as sc                                             # scRNA-seq tools
+import pandas as pd                                             # DataFrames
+import anndata as ad                                            # scRNA-seq data structures
+import scvelo as scv                                            # RNA velocity
+import cellrank as cr                                           # cell fate estimation
+import matplotlib.pyplot as plt                                 # pretty plots
+from matplotlib import gridspec                                 # subplot alignment
+from cellrank.kernels import PseudotimeKernel, CytoTRACEKernel  # CellRank kernels
+```
+
+```{python}
+warnings.simplefilter('ignore', category=UserWarning)
+sc.settings.verbosity = 0
+scv.settings.verbosity = 0
+cr.settings.verbosity = 0
+```
+
+# Visualization tools {#sec-viz-tools}
+
+First we define a `ggplot` guide that will make our legends cleaner and easier to read. 
+
+```{r}
+guide_umap <- function(key.size = 5) {
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, alpha = 1, stroke = 0.25)))
+}
+```
+
+Next we define a theme for `matplotlib`. 
+
+```{python}
+base_size = 9
+plt.rcParams.update({
+    # font
+    'font.size': base_size, 
+    'font.weight': 'normal',
+    # figure
+    'figure.dpi': 300, 
+    'figure.edgecolor': 'white', 
+    'figure.facecolor': 'white', 
+    'figure.figsize': (6, 4), 
+    'figure.constrained_layout.use': True,
+    # axes
+    'axes.edgecolor': 'black',
+    'axes.grid': False,
+    'axes.labelpad': 2.75,
+    'axes.labelsize': base_size * 0.8,
+    'axes.linewidth': 1.5,
+    'axes.spines.right': False,
+    'axes.spines.top': False,
+    'axes.titlelocation': 'left',
+    'axes.titlepad': 11,
+    'axes.titlesize': base_size,
+    'axes.titleweight': 'normal',
+    'axes.xmargin': 0.1, 
+    'axes.ymargin': 0.1, 
+    # legend
+    'legend.borderaxespad': 1,
+    'legend.borderpad': 0.5,
+    'legend.columnspacing': 2,
+    'legend.fontsize': base_size * 0.8,
+    'legend.frameon': False,
+    'legend.handleheight': 1,
+    'legend.handlelength': 1.2,
+    'legend.labelspacing': 1,
+    'legend.title_fontsize': base_size, 
+    'legend.markerscale': 1.5
+})
+```
+
+Lastly we define a consistent set of color palettes. 
+
+```{r}
+palette_heatmap <- paletteer::paletteer_d("MetBrewer::Cassatt1", direction = -1)
+palette_celltype <- as.character(paletteer::paletteer_d("ggsci::category10_d3"))[1:6]
+names(palette_celltype) <- c("HSC", "Kupffer cell", "Monocyte-macrophage", "Monocyte", "Monocyte precursor", "Neutrophil-myeloid progenitor")
+palette_cluster <- paletteer::paletteer_d("ggsci::default_igv")
+```
+
+# Data  {#sec-data}
+
+## Processed counts
+
+```{r}
+seu_myeloid <- readRDS("../../data/hematopoesis/seu_myeloid.Rds")
+cell_offset <- createCellOffset(seu_myeloid)
+```
+
+```{python}
+ad_myeloid = ad.read_h5ad('../../data/hematopoesis/ad_myeloid.h5ad')
+```
+
+## Table of transcription factors
+
+```{r}
+#| message: false
+#| warning: false
+hs_ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+hs_tf_raw <- readr::read_csv("http://humantfs.ccbr.utoronto.ca/download/v_1.01/DatabaseExtract_v_1.01.csv",
+                             col_select = -1,
+                             num_threads = 2,
+                             show_col_types = FALSE) %>%
+             janitor::clean_names() %>%
+             filter(is_tf == "Yes") %>%
+             select(ensembl_id)
+hs_tfs <- getBM(attributes = c("ensembl_gene_id", "hgnc_symbol", "entrezgene_id", "description", "gene_biotype"),
+                filters = "ensembl_gene_id",
+                values = hs_tf_raw$ensembl_id,
+                mart = hs_ensembl,
+                uniqueRows = TRUE) %>%
+          rename(ensembl_id = ensembl_gene_id,
+                 entrez_id = entrezgene_id) %>%
+          arrange(ensembl_id) %>%
+          mutate(hgnc_symbol = if_else(hgnc_symbol == "", NA_character_, hgnc_symbol),
+                 description = gsub("\\[Source.*", "", description))
+```
+
+## Models from `scLANE`
+
+```{r}
+scLANE_models <- readRDS("../../data/hematopoesis/scLANE_models.Rds")
+scLANE_de_res <- getResultsDE(scLANE_models)
+scLANE_sig_TFs <- inner_join(scLANE_de_res, 
+                             hs_tfs, 
+                             by = c("Gene" = "hgnc_symbol")) %>% 
+                  filter(Gene_Dynamic_Overall == 1)
+dyn_genes <- filter(scLANE_de_res, Gene_Dynamic_Overall == 1) %>% 
+             pull(Gene)
+```
+
+## Models from `tradeSeq`
+
+```{r}
+ts_models <- readRDS("../../data/hematopoesis/ts_models.Rds")
+ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
+                             arrange(desc(waldStat)) %>% 
+                             mutate(gene = rownames(.), 
+                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
+                             relocate(gene)
+dyn_genes_ts <- filter(ts_de_res, gene_dynamic_overall == 1) %>% 
+                distinct(gene) %>% 
+                pull(gene)
+```
+
+## `Slingshot` output
+
+```{r}
+sling_res <- readRDS("../../data/hematopoesis/sling_res.Rds")
+sling_curves <- slingCurves(sling_res, as.df = TRUE)
+sling_mst <- slingMST(sling_res, as.df = TRUE)
+sling_pt <- slingPseudotime(sling_res) %>%
+            as.data.frame() %>%
+            mutate(cell = rownames(.),
+                   .before = 1) %>%
+            rename(PT = Lineage1) %>% 
+            mutate(PT = (PT - min(PT)) / (max(PT) - min(PT)))
+pt_df <- as.data.frame(sling_pt) %>% 
+         magrittr::set_rownames(.$cell) %>% 
+         select(-cell)
+```
+
+## Embedding dataframe
+
+```{r}
+embed_df <- data.frame(fa1 = seu_myeloid@reductions$fa@cell.embeddings[, 1], 
+                       fa2 = seu_myeloid@reductions$fa@cell.embeddings[, 2], 
+                       umap1 = seu_myeloid@reductions$umap@cell.embeddings[, 1], 
+                       umap2 = seu_myeloid@reductions$umap@cell.embeddings[, 2],
+                       leiden = factor(seu_myeloid$leiden), 
+                       celltype = seu_myeloid$celltype, 
+                       PT_sling = sling_pt$PT, 
+                       PT_diffmap = seu_myeloid$dpt_pseudotime) %>% 
+            mutate(celltype_short = case_when(celltype == "HSC" ~ "HSC", 
+                                              celltype == "Kupffer cell" ~ "Kupffer cell", 
+                                              celltype == "Monocyte" ~ "Monocyte", 
+                                              celltype == "Monocyte precursor" ~ "Mono. pre.", 
+                                              celltype == "Monocyte-macrophage" ~ "Mono-macro.", 
+                                              celltype == "Neutrophil-myeloid progenitor" ~ "Neutro. prog.", 
+                                              TRUE ~ NA_character_))
+pseudotime_order <- with_groups(embed_df, 
+                                c(celltype, celltype_short),
+                                summarise, 
+                                mu = mean(PT_sling)) %>% 
+                    arrange(mu)
+embed_df <- mutate(embed_df, 
+                   celltype = factor(celltype, levels = pseudotime_order$celltype), 
+                   celltype_short = factor(celltype_short, levels = pseudotime_order$celltype_short))
+```
+
+## Cell fate analysis with `CellRank`
+
+### CytoTRACE kernel 
+
+```{python}
+#| results: hide
+ctk = CytoTRACEKernel(ad_myeloid).compute_cytotrace()
+ctk.compute_transition_matrix(threshold_scheme='soft', show_progress_bar=False)
+```
+
+### Pseudotime kernel
+
+```{python}
+#| results: hide
+ad_myeloid.obs['sling_PT'] = r.sling_pt['PT'].tolist()
+pk = PseudotimeKernel(ad_myeloid, time_key='sling_PT')
+pk.compute_transition_matrix(threshold_scheme='soft', show_progress_bar=False)
+```
+
+### Combined kernel
+
+```{python}
+ck = 0.2 * ctk + 0.8 * pk
+```
+
+# Figure 5 {#sec-fig5}
+
+## A
+
+```{python}
+#| message: false
+#| warning: false
+#| fig-width: 3
+#| fig-height: 2.5
+fig = plt.figure(figsize=(3, 2.5), dpi=300)
+gs = gridspec.GridSpec(nrows=1, ncols=1, bottom=0.075, left=0.05)
+ax = fig.add_subplot(gs[0, 0])
+ck.plot_projection(
+  basis='draw_graph_fa', 
+  recompute=True, 
+  color='celltype',
+  title='',
+  legend_loc='right margin', 
+  size=30, 
+  alpha=0.75, 
+  linewidth=2, 
+  frameon=True, 
+  show=False, 
+  ax=ax, 
+  dpi=300, 
+  xlabel='', 
+  ylabel=''
+)
+ax.set_xlabel('FA 1')
+ax.set_ylabel('FA 2')
+ax.set_xlim(ad_myeloid.obsm['X_draw_graph_fa'][:, 0].min() - 2000, ad_myeloid.obsm['X_draw_graph_fa'][:, 0].max() + 2000)
+ax.set_ylim(ad_myeloid.obsm['X_draw_graph_fa'][:, 1].min() - 2000, ad_myeloid.obsm['X_draw_graph_fa'][:, 1].max() + 2000)
+fig.savefig('../png/Figure_5A.png', bbox_inches='tight')
+plt.show()
+```
+
+## B 
+
+```{r, fig.width=4.3, fig.height=2.5}
+Fig_5B <- getFittedValues(scLANE_models, 
+                          genes = scLANE_sig_TFs$Gene[1:4], 
+                          pt = pt_df, 
+                          expr.mat = seu_myeloid, 
+                          size.factor.offset = cell_offset, 
+                          cell.meta.data = data.frame(leiden = embed_df$leiden, 
+                                                      celltype = embed_df$celltype)) %>% 
+          mutate(gene = factor(gene, levels = scLANE_sig_TFs$Gene[1:4])) %>% 
+          ggplot(aes(x = pt, y = rna_log1p)) + 
+          facet_wrap(~gene, ncol = 2, nrow = 2) + 
+          geom_point(aes(color = celltype), 
+                     stroke = 0, 
+                     alpha = 0.4, 
+                     size = 1.25, 
+                     show.legend = FALSE) + 
+          geom_ribbon(aes(ymin = scLANE_ci_ll_log1p, ymax = scLANE_ci_ul_log1p),
+                      linewidth = 0,
+                      fill = "grey70",
+                      alpha = 0.9) +
+          geom_line(aes(y = scLANE_pred_log1p), 
+                    color = "black", 
+                    linewidth = 1) + 
+          scale_color_manual(values = palette_celltype) + 
+          labs(x = "Pseudotime", y = "Normalized Expression") + 
+          theme_scLANE(base.size = 9) +  
+          theme(strip.text.x = element_text(face = "italic"))
+Fig_5B
+```
+
+```{r}
+ggsave("Figure_5B.png",
+       plot = Fig_5B, 
+       device = "png", 
+       path = "../png/",
+       width = 4.3, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 300)
+```
+
+# Magic numbers {#sec-nums}
+
+```{r}
+length(dyn_genes)
+length(dyn_genes_ts)
+length(intersect(dyn_genes, dyn_genes_ts))
+length(dyn_genes[!dyn_genes %in% dyn_genes_ts])
+length(dyn_genes_ts[!dyn_genes_ts %in% dyn_genes])
+```
+
+# Session info {#sec-SI}
+
+```{r}
+sessioninfo::session_info()
+```

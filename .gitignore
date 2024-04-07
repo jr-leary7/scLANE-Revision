@@ -1,0 +1,5 @@
+*.h5ad
+*.Rds
+*.Rhistory
+slurm*
+data/

@@ -1,0 +1,415 @@
+---
+title: "Processing Pipeline for Zebrafish Data from Farrell *et al* (2018)"
+subtitle: "Bacher Group"
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(comment = NA)
+reticulate::use_condaenv("../../../../py_envs/scLANE_env2/", required = TRUE)
+options(future.globals.maxSize = 1e20)
+set.seed(312)  # lucky seed
+```
+
+# Libraries  {#sec-libs}
+
+Before we begin, we load all the necessary libraries in R & Python. 
+
+## R 
+
+```{r}
+#| message: false
+#| warning: false
+library(dplyr)       # data manipulation
+library(scLANE)      # trajectory DE
+library(Seurat)      # scRNA-seq tools
+library(ggplot2)     # pretty plots
+library(tradeSeq)    # more trajectory DE
+library(slingshot)   # pseudotime inference
+library(patchwork)   # plot alignment 
+library(reticulate)  # Python interface
+rename <- dplyr::rename
+reduce <- purrr::reduce
+```
+
+## Python
+
+```{python}
+#| message: false
+#| warning: false
+import pandas as pd           # DataFrame tools
+import cellrank as cr         # zebrafish dataset
+from scipy.io import mmwrite  # sparse matrix I/O
+```
+
+# Visualization tools  {#sec-viz-tools}
+
+We define a few color palettes to make our plots look nice. 
+
+```{r}
+palette_heatmap <- paletteer::paletteer_d("wesanderson::Zissou1")
+palette_timepoint <- paletteer::paletteer_d("ggsci::category20_d3")
+palette_cluster <- paletteer::paletteer_d("ggsci::default_igv")
+palette_lineage <- paletteer::paletteer_d("MetBrewer::Juarez")
+```
+
+# Data  {#sec-data}
+
+## Pull data with `CellRank`
+
+We start by loading in the zebrafish dataset included in the `CellRank` package. 
+
+```{python}
+#| results: hide
+ad_fish = cr.datasets.zebrafish()
+ad_fish.obs.reset_index(inplace=False) \
+           .rename(columns={'index': 'cell'}) \
+           .to_csv('/blue/rbacher/j.leary/repos/scLANE-Paper/Data/zebrafish_obs.csv')
+ad_fish.var.reset_index(inplace=False) \
+           .rename(columns={'index': 'gene'}) \
+           .to_csv('/blue/rbacher/j.leary/repos/scLANE-Paper/Data/zebrafish_var.csv')
+mmwrite('/blue/rbacher/j.leary/repos/scLANE-Paper/Data/zebrafish_counts.mtx', a=ad_fish.X)
+pd.DataFrame(ad_fish.obsm['X_force_directed']) \
+  .rename(columns={0: 'F1', 1: 'F2', 2: 'F3'}) \
+  .to_csv('/blue/rbacher/j.leary/repos/scLANE-Paper/Data/zebrafish_graph_embed.csv')
+```
+
+## Read data into R
+
+Next, we read the cell- and gene-level metadata, counts matrix, and force-directed graph embedding into R. Expand the code block for details. 
+
+```{r}
+#| results: hide
+#| code-fold: true
+#| message: false
+#| warning: false
+ad_fish_obs <- readr::read_csv("/blue/rbacher/j.leary/repos/scLANE-Paper/Data/zebrafish_obs.csv", 
+                               col_names = TRUE, 
+                               show_col_types = FALSE,
+                               col_select = -1) %>% 
+               as.data.frame() %>% 
+               magrittr::set_rownames(.$cell)
+ad_fish_var <- readr::read_csv("/blue/rbacher/j.leary/repos/scLANE-Paper/Data/zebrafish_var.csv", 
+                               col_names = TRUE, 
+                               show_col_types = FALSE,
+                               col_select = -1) %>% 
+               as.data.frame() %>% 
+               magrittr::set_rownames(.$gene)
+ad_fish_embed <- readr::read_csv("/blue/rbacher/j.leary/repos/scLANE-Paper/Data/zebrafish_graph_embed.csv", 
+                                 col_names = TRUE, 
+                                 show_col_types = FALSE,
+                                 col_select = -1) %>% 
+                 as.matrix()
+rownames(ad_fish_embed) <- ad_fish_obs$cell
+counts_mtx <- Matrix::readMM("/blue/rbacher/j.leary/repos/scLANE-Paper/Data/zebrafish_counts.mtx")
+counts_mtx <- as(counts_mtx, "dgCMatrix")
+colnames(counts_mtx) <- ad_fish_var$gene
+rownames(counts_mtx) <- ad_fish_obs$cell
+counts_mtx <- Matrix::t(counts_mtx)
+na_cells <- which(rowSums(is.na(ad_fish_embed)) != 0)
+ad_fish_obs <- ad_fish_obs[-na_cells, ]
+ad_fish_embed <- ad_fish_embed[-na_cells, ]
+counts_mtx <- counts_mtx[, -na_cells]
+```
+
+```{r}
+#| echo: false
+if (dir.exists("datasets/")) {
+  system("rm -rf datasets/")
+}
+```
+
+## Create `Seurat` object
+
+With our data in hand we create a `Seurat` object. 
+
+```{r}
+#| message: false
+#| warning: false
+seu_fish <- CreateSeuratObject(counts = counts_mtx, 
+                               project = "zebrafish", 
+                               assay = "RNA", 
+                               meta.data = ad_fish_obs,
+                               min.cells = 5, 
+                               min.features = 0)
+graph_embed <- CreateDimReducObject(ad_fish_embed, 
+                                    assay = "RNA", 
+                                    key = "FR_", 
+                                    global = TRUE)
+seu_fish@reductions$fdg <- graph_embed
+seu_fish@meta.data <- mutate(seu_fish@meta.data, 
+                             timepoint = gsub("-.*", "", Stage), 
+                             timepoint = as.numeric(timepoint), 
+                             timepoint = as.factor(timepoint))
+```
+
+## Preprocessing 
+
+We run the cells through a typical preprocessing workflow composed of normalization, HVG selection, PCA, UMAP, SNN graph estimation, and Leiden clustering. 
+
+```{r}
+#| message: false
+#| warning: false
+seu_fish <- NormalizeData(seu_fish, verbose = FALSE) %>%  
+            FindVariableFeatures(nfeatures = 3000, verbose = FALSE) %>% 
+            ScaleData(verbose = FALSE) %>% 
+            RunPCA(npcs = 50, 
+                   seed.use = 312, 
+                   approx = TRUE, 
+                   verbose = FALSE) %>% 
+            RunUMAP(reduction = "pca", 
+                    dims = 1:30, 
+                    return.model = TRUE, 
+                    n.neighbors = 20, 
+                    min.dist = 0.3,  
+                    n.components = 2, 
+                    n.epochs = 1000, 
+                    metric = "cosine", 
+                    seed.use = 312, 
+                    verbose = FALSE) %>% 
+            FindNeighbors(reduction = "pca", 
+                          dims = 1:30, 
+                          k.param = 20, 
+                          return.neighbor = TRUE, 
+                          nn.method = "annoy", 
+                          annoy.metric = "cosine", 
+                          verbose = FALSE) %>% 
+            FindNeighbors(reduction = "pca", 
+                          dims = 1:30, 
+                          k.param = 20, 
+                          compute.SNN = TRUE, 
+                          nn.method = "annoy", 
+                          annoy.metric = "cosine", 
+                          verbose = FALSE) %>% 
+            FindClusters(resolution = 0.5, 
+                         algorithm = 4, 
+                         method = "igraph", 
+                         random.seed = 312, 
+                         verbose = FALSE)
+```
+
+# Analysis {#sec-analysis}
+
+## Pseudotime estimation with `Slingshot`
+
+We begin our analysis by estimating two lineages of pseudotime with `Slingshot`; the lineages correspond to the notochord and prechordal plate cell fates, respectively. 
+
+```{r}
+#| message: false
+#| warning: false
+sling_res <- slingshot(seu_fish@reductions$fdg@cell.embeddings[, 1:2], 
+                       clusterLabels = seu_fish$seurat_clusters, 
+                       start.clus = "5", 
+                       approx_points = 1000)
+sling_curves <- slingCurves(sling_res, as.df = TRUE)
+sling_mst <- slingMST(sling_res, as.df = TRUE)
+sling_pt <- slingPseudotime(sling_res) %>%
+            as.data.frame() %>%
+            mutate(cell = rownames(.),
+                   across(contains("Lineage"), \(x) (x - min(x, na.rm = T)) / (max(x, na.rm = T) - min(x, na.rm = T))), 
+                   .before = 1) %>%
+            rowwise() %>%
+            mutate(PT_Overall = mean(c_across(contains("Lineage")), na.rm = TRUE)) %>%
+            ungroup()
+```
+
+Visualizing the minimum spanning tree (MST) and smooth lineage curves shows us that the `Slingshot` results match up well with what we know biologically. 
+
+```{r}
+#| code-fold: true
+#| fig-cap: The MST and principal curves estimated by Slingshot overlaid on the force-directed graph embedding. 
+#| label: fig-fdg-sling
+p0 <- data.frame(Embeddings(seu_fish, "fdg")) %>% 
+      mutate(leiden = seu_fish$seurat_clusters) %>% 
+      ggplot(aes(x = FR_1, y = FR_2, color = leiden)) + 
+      geom_point(size = 1.5, 
+                 alpha = 0.75, 
+                 stroke = 0) + 
+      geom_path(data = sling_mst, mapping = aes(x = FR_1, y = FR_2, group = Lineage), 
+                linewidth = 1.25, 
+                color = "black") + 
+      geom_point(data = sling_mst, mapping = aes(x = FR_1, y = FR_2, fill = Cluster), 
+                color = "black", 
+                shape = 21, 
+                size = 4.5, 
+                stroke = 1.25, 
+                show.legend = FALSE) + 
+      scale_color_manual(values = palette_cluster) + 
+      scale_fill_manual(values = palette_cluster) + 
+      labs(x = "FA 1", 
+           y = "FA 2", 
+           color = "Leiden") + 
+      theme_scLANE(umap = TRUE) +  
+      guides(color = guide_legend(override.aes = list(size = 4, alpha = 1, stroke = 0.25)))
+p1 <- data.frame(Embeddings(seu_fish, "fdg")) %>% 
+      mutate(leiden = seu_fish$seurat_clusters) %>% 
+      ggplot(aes(x = FR_1, y = FR_2, color = leiden)) + 
+      geom_point(size = 1.5, 
+                 alpha = 0.75, 
+                 stroke = 0) + 
+      geom_path(data = sling_curves,
+                mapping = aes(x = FR_1, y = FR_2, group = Lineage), 
+                color = "black", 
+                linewidth = 1.5, 
+                alpha = 0.75, 
+                lineend = "round") + 
+      scale_color_manual(values = palette_cluster) + 
+      labs(x = "FA 1", 
+           y = "FA 2", 
+           color = "Leiden") + 
+      theme_scLANE(umap = TRUE) + 
+      guides(color = guide_legend(override.aes = list(size = 4, alpha = 1, stroke = 0.25)))
+p2 <- (p0 / p1) + plot_layout(guides = "collect", axes = "collect")
+p2
+```
+
+Since our pseudotime can be viewed as a smooth, continuous proxy of discrete experimental time, we've normalized it to $[0, 1]$ within each lineage. 
+
+```{r}
+#| code-fold: true
+#| fig-cap: The force-directed graph embedding colored by lineage-specific pseudotime estimated by Slingshot. 
+#| label: fig-fdg-pseudotime
+p3 <- data.frame(Embeddings(seu_fish, "fdg")) %>% 
+      bind_cols(sling_pt) %>% 
+      tidyr::pivot_longer(starts_with("Lineage"), 
+                          names_to = "lineage", 
+                          values_to = "pseudotime") %>% 
+      mutate(lineage_label = if_else(lineage == "Lineage2", "Notochord Lineage", "Prechordal Plate Lineage")) %>% 
+      ggplot(aes(x = FR_1, y = FR_2, color = pseudotime)) + 
+      facet_wrap(~lineage_label, nrow = 2) + 
+      geom_point(size = 1.5, 
+                 alpha = 0.75, 
+                 stroke = 0) + 
+      labs(x = "FA 1", 
+           y = "FA 2", 
+           color = "Pseudotime") + 
+      scale_color_gradientn(colors = palette_heatmap, labels = scales::label_number(accuracy = .01)) + 
+      theme_scLANE(umap = TRUE)
+p3
+```
+
+## Trajectory DE testing with `scLANE`
+
+Finally, we perform trajectory DE testing using `scLANE`.
+
+```{r}
+traj_gene_set <- HVFInfo(seu_fish) %>% 
+                 filter(mean > 0.1) %>% 
+                 arrange(desc(variance.standardized)) %>% 
+                 mutate(gene = rownames(.)) %>% 
+                 select(gene, 
+                        mean, 
+                        variance, 
+                        variance.standardized) %>% 
+                 slice_head(n = 3000)
+pt_df <- select(sling_pt, -c(PT_Overall, cell)) %>% 
+         as.data.frame() %>% 
+         magrittr::set_rownames(seu_fish$cell) %>% 
+         magrittr::set_colnames(c("PT_P", "PT_N"))
+cell_offset <- createCellOffset(seu_fish)
+scLANE_models <- testDynamic(seu_fish, 
+                             pt = pt_df,
+                             genes = traj_gene_set$gene, 
+                             size.factor.offset = cell_offset, 
+                             n.cores = 8L, 
+                             verbose = FALSE)
+scLANE_res_tidy <- getResultsDE(scLANE_models) %>% 
+                   mutate(Lineage_Name = if_else(Lineage == "A", 
+                                                 "Prechordal Plate Lineage", 
+                                                 "Notochord Lineage"))
+```
+
+## `tradeSeq` DE analysis
+
+```{r}
+ts_start <- Sys.time()
+bioc_par <- BiocParallel::MulticoreParam(workers = 8L, RNGseed = 312)
+RNA_counts <- as.matrix(seu_fish@assays$RNA$counts)[traj_gene_set$gene, ]
+ts_pt <- slingPseudotime(sling_res, na = FALSE) %>% 
+         as.data.frame() %>% 
+         mutate(across(contains("Lineage"), \(x) (x - min(x, na.rm = T)) / (max(x, na.rm = T) - min(x, na.rm = T))))
+k_eval <- evaluateK(RNA_counts, 
+                    pseudotime = ts_pt, 
+                    cellWeights = slingCurveWeights(sling_res), 
+                    offset = log(1 / cell_offset), 
+                    k = 3:10, 
+                    plot = FALSE, 
+                    nGenes = 500, 
+                    verbose = FALSE, 
+                    parallel = TRUE, 
+                    BPPARAM = bioc_par)
+best_k <- c(3:10)[which.min(abs(colMeans(k_eval - rowMeans(k_eval))))]  # choose k w/ lowest MAD from mean AIC 
+ts_models <- fitGAM(RNA_counts, 
+                    pseudotime = ts_pt, 
+                    cellWeights = slingCurveWeights(sling_res), 
+                    offset = log(1 / cell_offset), 
+                    nknots = best_k, 
+                    sce = FALSE, 
+                    parallel = TRUE, 
+                    verbose = FALSE, 
+                    BPPARAM = bioc_par)
+BiocParallel::bpstop(bioc_par)
+ts_end <- Sys.time()
+ts_diff <- ts_end - ts_start
+ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
+                             arrange(pvalue) %>% 
+                             mutate(gene = rownames(.), 
+                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
+                             relocate(gene)
+```
+
+The runtime for `tradeSeq` with `r best_k` knots per gene is: 
+
+```{r}
+ts_diff
+```
+
+# Save data {#sec-save}
+
+We save our `Seurat` object, `Slingshot` results, and output from `scLANE`.
+
+```{r}
+saveRDS(seu_fish, file = "../../data/zebrafish/seu_fish.Rds")
+saveRDS(sling_res, file = "../../data/zebrafish/sling_res.Rds")
+saveRDS(scLANE_models, file = "../../data/zebrafish/scLANE_models.Rds")
+saveRDS(ts_models, file = "../../data/zebrafish/ts_models.Rds")
+```
+
+# Session info {#sec-SI}
+
+```{r}
+sessioninfo::session_info()
+```

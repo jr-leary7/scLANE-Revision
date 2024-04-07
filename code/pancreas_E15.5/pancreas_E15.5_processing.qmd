@@ -1,0 +1,1049 @@
+---
+title: "Processing Pipeline for Pancreatic Endocrinogenesis Data from Bastidas-Ponce *et al* (2019)"
+subtitle: "Bacher Group"
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(comment = NA)
+reticulate::use_condaenv("../../../../py_envs/scLANE_env2/", required = TRUE)
+set.seed(312)  # lucky seed
+```
+
+# Libraries {#sec-libs}
+
+Before we do anything else we load in the necessary software packages in both R & Python.
+
+## R
+
+```{r}
+#| message: false
+#| warning: false
+library(dplyr)       # data manipulation
+library(Seurat)      # scRNA-seq tools
+library(scLANE)      # trajectory DE
+library(ggplot2)     # pretty plots
+library(tradeSeq)    # more trajectory DE
+library(patchwork)   # plot alignment
+library(reticulate)  # Python interface
+select <- dplyr::select
+rename <- dplyr::rename
+```
+
+## Python
+
+```{python}
+#| message: false
+#| warning: false
+import warnings                                                                 # filter out warnings
+import numpy as np                                                              # linear algebra tools
+import scanpy as sc                                                             # scRNA-seq tools
+import pandas as pd                                                             # DataFrames
+import anndata as ad                                                            # scRNA-seq data structures
+import scvelo as scv                                                            # RNA velocity
+import cellrank as cr                                                           # cell fate estimation
+import matplotlib.pyplot as plt                                                 # pretty plots
+from scipy.io import mmread, mmwrite                                            # sparse matrix IO
+from cellrank.estimators import GPCCA                                           # CellRank estimator
+from scipy.sparse import coo_matrix, csr_matrix                                 # sparse matrices
+from cellrank.kernels import PseudotimeKernel, CytoTRACEKernel, VelocityKernel  # CellRank kernels
+```
+
+Here we set a few global variables to reduce the amount of printed output caused by our Python code. 
+
+```{python}
+warnings.simplefilter('ignore', category=UserWarning)
+sc.settings.verbosity = 0
+scv.settings.verbosity = 0
+cr.settings.verbosity = 0
+```
+
+# Visualization tools {#sec-viz-tools}
+
+To make our visualizations prettier we'll define some consistent color palettes, and set a theme for `matplotlib` that matches `ggplot2::theme_classic()`. 
+
+## Color palettes
+
+```{r}
+palette_heatmap <- paletteer::paletteer_d("wesanderson::Zissou1")
+palette_cluster <- paletteer::paletteer_d("ggsci::category20_d3")
+palette_celltype <- c("#A82203FF", "#208CC0FF", "#F1AF3AFF", "#CF5E4EFF", "#00991AFF", "#003967FF", "#6BD76BFF", "#660099FF")
+names(palette_celltype) <- c("Ductal", "Ngn3 low EP", "Ngn3 high EP", "Pre-endocrine", "Beta", "Alpha", "Delta", "Epsilon")
+```
+
+## Theme for `matplotlib`
+
+```{python}
+base_size = 12
+plt.rcParams.update({
+    # font
+    'font.size': base_size, 
+    'font.weight': 'normal',
+    # figure
+    'figure.dpi': 320, 
+    'figure.edgecolor': 'white', 
+    'figure.facecolor': 'white', 
+    'figure.figsize': (6, 4), 
+    'figure.constrained_layout.use': True,
+    # axes
+    'axes.edgecolor': 'black',
+    'axes.grid': False,
+    'axes.labelpad': 2.75,
+    'axes.labelsize': base_size * 0.8,
+    'axes.linewidth': 1.5,
+    'axes.spines.right': False,
+    'axes.spines.top': False,
+    'axes.titlelocation': 'left',
+    'axes.titlepad': 11,
+    'axes.titlesize': base_size,
+    'axes.titleweight': 'normal',
+    'axes.xmargin': 0.1, 
+    'axes.ymargin': 0.1, 
+    # legend
+    'legend.borderaxespad': 1,
+    'legend.borderpad': 0.5,
+    'legend.columnspacing': 2,
+    'legend.fontsize': base_size * 0.8,
+    'legend.frameon': False,
+    'legend.handleheight': 1,
+    'legend.handlelength': 1.2,
+    'legend.labelspacing': 1,
+    'legend.title_fontsize': base_size, 
+    'legend.markerscale': 1.5
+})
+```
+
+# Helper functions {#sec-fns}
+
+We first define a utility function to make our plot legends cleaner to read & easier to make. 
+
+```{r}
+guide_umap <- function(key.size = 4) {
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size,
+                                                                    alpha = 1, 
+                                                                    stroke = 0.25)))
+}
+```
+
+# Data {#sec-data}
+
+## Pancreatic endocrinogenesis dataset
+
+We load the well-known day E15.5 pancreatic endocrinogenesis data from [Bastidas-Ponce *et al* (2019)](https://doi.org/10.1242/dev.173849), which is often used as a good benchmark dataset due to the simplicity of the underlying trajectory manifold. 
+
+```{python}
+#| results: hide
+ad_panc = scv.datasets.pancreas()
+ad_panc.obs.rename(columns={'clusters': 'celltype', 'clusters_coarse': 'celltype_coarse'}, inplace=True)
+ad_panc.uns['celltype_colors'] = np.array(['#A82203FF', '#208CC0FF', '#F1AF3AFF', '#CF5E4EFF', '#00991AFF', '#003967FF', '#6BD76BFF', '#660099FF'])
+ad_panc.layers['spliced_counts'] = ad_panc.layers['spliced'].copy()
+ad_panc.layers['unspliced_counts'] = ad_panc.layers['unspliced'].copy()
+ad_panc.raw = ad_panc
+```
+
+```{r}
+#| echo: false
+if (dir.exists("./data")) {
+  system("rm -rf ./data")
+}
+```
+
+# Preprocessing {#sec-preprocess}
+
+We'll begin our analysis by running our cells through a standard preprocessing pipeline composed of QC, normalization, HVG selection, dimension reduction, & clustering. 
+
+## QC
+
+We filter out cells with a (spliced) sequencing depth of less than 1,000, then remove out genes expressed in less than 5 cells. 
+
+```{python}
+sc.pp.filter_cells(ad_panc, min_counts=1000)
+sc.pp.filter_genes(ad_panc, min_cells=5)
+```
+
+## HVG selection
+
+Here we select the top 3000 most highly-variable genes (HVGs), which we'll use as input to PCA. 
+
+```{python}
+sc.pp.highly_variable_genes(
+    ad_panc, 
+    n_top_genes=3000, 
+    flavor='seurat_v3', 
+    subset=False
+)
+```
+
+## Normalization
+
+We next depth- and log1p-normalize the spliced mRNA counts matrix. 
+
+```{python}
+ad_panc.X = sc.pp.normalize_total(ad_panc, target_sum=1e4, inplace=False)['X']
+sc.pp.log1p(ad_panc)
+```
+
+## PCA embedding
+
+Using PCA we generate a 50-dimensional linear reduction of the normalized spliced counts. 
+
+```{python}
+sc.pp.scale(ad_panc)
+sc.tl.pca(
+    ad_panc, 
+    n_comps=50, 
+    random_state=312, 
+    use_highly_variable=True
+)
+```
+
+Plotting the first two PCs shows clear separation by (coarse) celltype with e.g., variation in the mature endocrine celltypes being less clear. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: PCA embedding colored by celltype. 
+#| label: fig-pca-embed
+sc.pl.embedding(
+    ad_panc, 
+    basis='pca', 
+    color='celltype',
+    title='', 
+    frameon=True, 
+    size=30, 
+    alpha=0.75,
+    show=False
+)
+plt.gca().set_xlabel('PC 1')
+plt.gca().set_ylabel('PC 2')
+plt.show()
+```
+
+## SNN graph estimation
+
+Next, we identify the 20 nearest-neighbors (NNs) for each cell using the cosine distance in PCA space. 
+
+```{python}
+sc.pp.neighbors(
+    ad_panc, 
+    n_neighbors=20,
+    n_pcs=30,  
+    metric='cosine', 
+    random_state=312
+)
+```
+
+## Clustering
+
+Using the Leiden algorithm we partition the SNN graph into clusters. 
+
+```{python}
+sc.tl.leiden(
+    ad_panc, 
+    resolution=0.3, 
+    random_state=312
+)
+```
+
+The identified clusters roughly match our celltypes. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: PCA embedding colored by Leiden cluster. 
+#| label: fig-pca-leiden
+sc.pl.embedding(
+    ad_panc, 
+    basis='pca', 
+    color='leiden',
+    title='', 
+    frameon=True, 
+    size=30, 
+    alpha=0.75,
+    show=False
+)
+plt.gca().set_xlabel('PC 1')
+plt.gca().set_ylabel('PC 2')
+plt.show()
+```
+
+## Moment-based imputation
+
+Moving on, we create smoothed versions of the spliced & unspliced counts across each cell's 20 NNs. 
+
+```{python}
+scv.pp.moments(
+    ad_panc, 
+    n_pcs=None,
+    n_neighbors=20
+)
+```
+
+## Undirected PAGA embedding
+
+We use the PAGA algorithm to generate a graph abstraction of the relationships between celltypes. 
+
+```{python}
+sc.tl.paga(ad_panc, groups='celltype')
+```
+
+Visualizing the results shows a branching structure that matches what we expect biologically. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: PAGA embedding colored by celltype. Lines are weighted by (undirected) connectivity strength.  
+#| label: fig-paga-embed
+sc.pl.paga(
+    ad_panc, 
+    fontoutline=True, 
+    fontsize=12, 
+    frameon=True, 
+    random_state=312, 
+    show=False
+)
+plt.gca().set_xlabel('PAGA 1')
+plt.gca().set_ylabel('PAGA 2')
+plt.show()
+```
+
+## UMAP embedding
+
+We then create a nonlinear dimension reduction of the data using the UMAP algorithm. 
+
+```{python}
+sc.tl.umap(
+    ad_panc, 
+    init_pos='paga', 
+    random_state=312
+)
+```
+
+In UMAP space the transitions between celltypes are clear and well-represented. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: UMAP embedding colored by celltype. 
+#| label: fig-umap-embed
+sc.pl.embedding(
+    ad_panc, 
+    basis='umap', 
+    color='celltype',
+    title='',
+    frameon=True, 
+    size=30, 
+    alpha=0.75,
+    show=False
+)
+plt.gca().set_xlabel('UMAP 1')
+plt.gca().set_ylabel('UMAP 2')
+plt.show()
+```
+
+## Force-directed graph embedding
+
+Using the ForceAtlas2 algorithm we generate a 2-dimensional graph layout of our cells. 
+
+```{python}
+#| message: false
+#| warning: false
+sc.tl.draw_graph(
+    ad_panc, 
+    layout='fa',
+    init_pos='paga', 
+    random_state=312
+)
+```
+
+While the force-directed graph embedding does recapitulate the differences and transitions between celltypes, it's a little noisier than the UMAP embedding, so we'll stick with UMAP instead going forward.
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: Force-directed graph embedding colored by celltype. 
+#| label: fig-graph-embed
+sc.pl.draw_graph(
+    ad_panc, 
+    color='celltype', 
+    title='', 
+    alpha=0.75, 
+    size=30, 
+    show=False, 
+    frameon=True
+)
+plt.gca().set_xlabel('FA 1')
+plt.gca().set_ylabel('FA 2')
+plt.show()
+```
+
+## Diffusion map embedding
+
+Our last embedding will be generated using diffusion maps, which explicitly attempts to preserve transitional structures in the data. 
+
+```{python}
+sc.tl.diffmap(
+    ad_panc, 
+    random_state=312, 
+    n_comps=16
+)
+ad_panc.obsm['X_diffmap_old'] = ad_panc.obsm['X_diffmap']
+ad_panc.obsm['X_diffmap'] = ad_panc.obsm['X_diffmap'][:, 1:] 
+```
+
+While the diffusion map embedding captures some characteristics of the data, it masks variation in the mature endocrine celltypes. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: Diffusion map embedding colored by celltype. 
+#| label: fig-diffmap-embed
+sc.pl.embedding(
+    ad_panc, 
+    basis='diffmap', 
+    color='celltype',
+    title='', 
+    frameon=True, 
+    alpha=0.75, 
+    size=30, 
+    components='1,2', 
+    show=False
+)
+plt.gca().set_xlabel('DC 1')
+plt.gca().set_ylabel('DC 2')
+plt.show()
+```
+
+## Diffusion pseudotime estimation
+
+We next compute a diffusion pseudotime estimate for each cell using the first diffusion component. 
+
+```{python}
+ad_panc.uns['iroot'] = np.argmin(ad_panc.obsm['X_diffmap'][:, 0])
+sc.tl.dpt(ad_panc, n_dcs=1)
+```
+
+Overall the diffusion pseudotime captures endocrinogenesis progression well, but it assigns very similar values to all the mature endocrine celltypes which isn't ideal. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: Diffusion map embedding colored by diffusion pseudotime.
+#| label: fig-diffmap-pseudotime
+sc.pl.embedding(
+    ad_panc, 
+    basis='diffmap', 
+    color='dpt_pseudotime',
+    title='', 
+    frameon=True, 
+    alpha=0.75, 
+    size=30, 
+    components='1,2', 
+    show=False
+)
+plt.gca().set_xlabel('DC 1')
+plt.gca().set_ylabel('DC 2')
+plt.show()
+```
+
+# Analysis {#sec-analysis}
+
+We'll perform several modes of analysis, namely RNA velocity analysis with `scVelo`, trajectory DE testing with `scLANE`, and cell fate analysis with `CellRank`. 
+
+## RNA velocity estimation {#sec-velocity}
+
+We run the dynamic velocity model, estimate a velocity graph, and embed the velocity vectors in UMAP space. 
+
+```{python}
+#| message: false
+#| warning: false
+#| results: hide
+scv.tl.recover_dynamics(ad_panc)
+scv.tl.velocity(
+    ad_panc, 
+    mode='dynamical', 
+    use_highly_variable=True, 
+    filter_genes=False
+)
+scv.tl.velocity_graph(
+  ad_panc, 
+  compute_uncertainties=True, 
+  n_neighbors=20
+)
+scv.tl.velocity_embedding(ad_panc, basis='umap')
+```
+
+We then estimate the confidence of the velocities along with a gene-shared latent time ordering.
+
+```{python}
+#| message: false
+#| warning: false
+#| results: hide
+scv.tl.velocity_confidence(ad_panc)
+scv.tl.latent_time(ad_panc)
+```
+
+The latent time representation seems to capture well the progression from endocrine progenitor cells to mature endocrine phenotypes, with beta cells having the highest latent time measurements overall. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: UMAP embedding colored by latent time. 
+#| label: fig-latent-time
+sc.pl.embedding(
+    ad_panc, 
+    basis='umap', 
+    color='latent_time',
+    title='', 
+    frameon=True, 
+    alpha=0.75, 
+    size=30,  
+    show=False
+)
+plt.gca().set_xlabel('UMAP 1')
+plt.gca().set_ylabel('UMAP 2')
+plt.show()
+```
+
+The velocity streamlines show clear progression through the endocrine progenitors up through the mature alpha, beta, delta, and epsilon celltypes. However, directionality is less clear in the ductal cells, most likely due to a combination of cell cycle effects and our explicit incorporation of basal transcription in the velocity model. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: UMAP embedding colored by celltype overlaid with velocity vector streamlines. 
+#| label: fig-velo-embed
+scv.pl.velocity_embedding_stream(
+    ad_panc, 
+    basis='umap', 
+    color='celltype',
+    alpha=0.75, 
+    size=30, 
+    frameon=True, 
+    linewidth=1, 
+    legend_loc='right margin',
+    arrow_size=1,
+    title='', 
+    show=False
+)
+plt.gca().set_xlabel('UMAP 1')
+plt.gca().set_ylabel('UMAP 2')
+plt.show()
+```
+
+### Directed PAGA embedding
+
+Here we use the PAGA algorithm to generate a *directed* graph representation of the relationships between celltypes using RNA velocity as prior information. 
+
+```{python}
+#| message: false
+#| warning: false
+scv.tl.paga(
+  ad_panc, 
+  groups='celltype', 
+  use_time_prior='latent_time'
+)
+```
+
+The RNA velocity measurements have allowed us to identify directed relationships between celltypes, which we visualize below. 
+
+```{python}
+#| message: false
+#| warning: false
+#| code-fold: true
+#| fig-cap: Directed PAGA embedding of the relationships between celltypes. Linewidth denotes strength of connectivity. 
+#| label: fig-paga-embed-directed
+scv.pl.paga(
+    ad_panc, 
+    basis='umap', 
+    color='celltype',
+    title='',
+    frameon=True, 
+    min_edge_width=1, 
+    random_state=312,
+    show=False
+)
+plt.gca().set_xlabel('UMAP 1')
+plt.gca().set_ylabel('UMAP 2')
+plt.show()
+```
+
+## Save preprocessed data {#sec-save-intermediate}
+
+We save the preprocessed object to an `.h5ad` file. 
+
+```{python}
+ad_panc.write_h5ad('../../data/pancreas_E15.5/ad_panc.h5ad')
+```
+
+We also save each of the individual pieces of the `AnnData` object to files, which will allow us to read the data into R & create a `Seurat` object. 
+
+```{python}
+ad_panc.obs.reset_index(inplace=False).rename(columns={'index': 'cell'}).to_csv('../../data/pancreas_E15.5/conversion_files/obs.csv')
+ad_panc.var.reset_index(inplace=False).rename(columns={'index': 'gene'}).to_csv('../../data/pancreas_E15.5/conversion_files/var.csv')
+pd.DataFrame(ad_panc.obsm['X_diffmap']).reset_index(inplace=False).to_csv('../../data/pancreas_E15.5/conversion_files/diffmap.csv')
+pd.DataFrame(ad_panc.obsm['X_pca']).reset_index(inplace=False).to_csv('../../data/pancreas_E15.5/conversion_files/PCA.csv')
+pd.DataFrame(ad_panc.obsm['X_draw_graph_fa']).reset_index(inplace=False).to_csv('../../data/pancreas_E15.5/conversion_files/FA.csv')
+pd.DataFrame(ad_panc.obsm['X_umap']).reset_index(inplace=False).to_csv('../../data/pancreas_E15.5/conversion_files/UMAP.csv')
+mmwrite('../../data/pancreas_E15.5/conversion_files/spliced_counts.mtx', a=ad_panc.layers['spliced_counts'])
+mmwrite('../../data/pancreas_E15.5/conversion_files/unspliced_counts.mtx', a=ad_panc.layers['unspliced_counts'])
+```
+
+## Import data from Python
+
+First we read in the data that we processed with `scanpy`. Expand the code block for details.
+
+```{r}
+#| message: false
+#| warning: false
+#| code-fold: true
+cell_metadata <- readr::read_csv("../../data/pancreas_E15.5/conversion_files/obs.csv", 
+                                 show_col_types = FALSE, 
+                                 col_select = -1) %>% 
+                 as.data.frame() %>% 
+                 magrittr::set_rownames(.$cell)
+gene_metadata <- readr::read_csv("../../data/pancreas_E15.5/conversion_files/var.csv", 
+                                 show_col_types = FALSE, 
+                                 col_select = -1)
+embed_PCA <- readr::read_csv("../../data/pancreas_E15.5/conversion_files/PCA.csv",
+                             show_col_types = FALSE, 
+                             col_select = -c(1:2)) %>% 
+             as.data.frame() %>% 
+             magrittr::set_colnames(paste0("PC", 1:ncol(.))) %>% 
+             magrittr::set_rownames(cell_metadata$cell)
+embed_PCA <- CreateDimReducObject(embeddings = as.matrix(embed_PCA),
+                                  key = "PC_", 
+                                  global = TRUE, 
+                                  assay = "RNA")
+embed_FA <- readr::read_csv("../../data/pancreas_E15.5/conversion_files/FA.csv", 
+                            show_col_types = FALSE, 
+                            col_select = -c(1:2)) %>% 
+            as.data.frame() %>% 
+            magrittr::set_colnames(paste0("FA", 1:ncol(.))) %>% 
+            magrittr::set_rownames(cell_metadata$cell)
+embed_FA <- CreateDimReducObject(embeddings = as.matrix(embed_FA),
+                                 key = "FA_", 
+                                 global = TRUE, 
+                                 assay = "RNA")
+embed_UMAP <- readr::read_csv("../../data/pancreas_E15.5/conversion_files/UMAP.csv", 
+                              show_col_types = FALSE, 
+                               col_select = -c(1:2)) %>% 
+              as.data.frame() %>% 
+              magrittr::set_colnames(paste0("UMAP", 1:ncol(.))) %>% 
+              magrittr::set_rownames(cell_metadata$cell)
+embed_UMAP <- CreateDimReducObject(embeddings = as.matrix(embed_UMAP),
+                                   key = "UMAP_", 
+                                   global = TRUE, 
+                                   assay = "RNA")
+embed_diffmap <- readr::read_csv("../../data/pancreas_E15.5/conversion_files/diffmap.csv", 
+                                 show_col_types = FALSE, 
+                                  col_select = -c(1:2)) %>% 
+                 as.data.frame() %>% 
+                 magrittr::set_colnames(paste0("DC", 1:ncol(.))) %>% 
+                 magrittr::set_rownames(cell_metadata$cell)
+embed_diffmap <- CreateDimReducObject(embeddings = as.matrix(embed_diffmap),
+                                      key = "DC_", 
+                                      global = TRUE, 
+                                      assay = "RNA")
+spliced_counts <- Matrix::t(Matrix::readMM("../../data/pancreas_E15.5/conversion_files/spliced_counts.mtx"))
+unspliced_counts <- Matrix::t(Matrix::readMM("../../data/pancreas_E15.5/conversion_files/unspliced_counts.mtx"))
+colnames(spliced_counts) <- colnames(unspliced_counts) <-cell_metadata$cell
+rownames(spliced_counts) <- rownames(unspliced_counts) <- gene_metadata$gene
+spliced_counts <- CreateAssayObject(counts = spliced_counts,
+                                    min.cells = 0,
+                                    min.features = 0, 
+                                    key = "spliced")
+unspliced_counts <- CreateAssayObject(counts = unspliced_counts, 
+                                      min.cells = 0, 
+                                      min.features = 0, 
+                                      key = "unspliced")
+```
+
+Now we can create a `Seurat` object. After adding both assays and the embeddings, we normalize both the spliced & unspliced counts, then re-add the HVG information (mean, variance, etc.) for each gene.
+
+```{r}
+#| message: false
+#| warning: false
+seu_panc <- CreateSeuratObject(spliced_counts, 
+                               assay = "spliced",
+                               meta.data = cell_metadata, 
+                               project = "pancreas_E15.5", 
+                               min.cells = 0, 
+                               min.features = 0)
+seu_panc@meta.data <- mutate(seu_panc@meta.data, 
+                             celltype = factor(celltype, levels = c("Ductal",
+                                                                    "Ngn3 low EP", 
+                                                                    "Ngn3 high EP", 
+                                                                    "Pre-endocrine", 
+                                                                    "Beta", 
+                                                                    "Alpha", 
+                                                                    "Delta", 
+                                                                    "Epsilon")))
+seu_panc@assays$unspliced <- unspliced_counts
+seu_panc@reductions$pca <- embed_PCA
+seu_panc@reductions$diffmap <- embed_diffmap
+seu_panc@reductions$fa <- embed_FA
+seu_panc@reductions$umap <- embed_UMAP
+seu_panc <- seu_panc %>% 
+            NormalizeData(assay = "spliced", verbose = FALSE) %>% 
+            NormalizeData(assays = "unspliced", verbose = FALSE) %>% 
+            FindVariableFeatures(assay = "spliced", 
+                                 selection.method = "vst", 
+                                 verbose = FALSE)
+```
+
+We can see that our UMAP embedding has been accurately preserved, even down to the colors of the celltypes.
+
+```{r}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: Preserved UMAP embedding from Python colored by celltype. 
+#| label: fig-umap-embed-preserved
+p0 <- as.data.frame(Embeddings(seu_panc, "umap")) %>% 
+      magrittr::set_colnames(c("UMAP_1", "UMAP_2")) %>% 
+      mutate(celltype = seu_panc$celltype) %>% 
+      ggplot(aes(x = UMAP_1, y = UMAP_2, color = celltype)) + 
+      geom_point(size = 1.25, 
+                 alpha = 0.75, 
+                 stroke = 0) + 
+      scale_color_manual(values = palette_celltype) + 
+      labs(x = "UMAP 1",  y = "UMAP 2") + 
+      theme_scLANE(umap = TRUE) + 
+      theme(plot.title = element_blank(), 
+            legend.title = element_blank()) + 
+      guide_umap()
+p0
+```
+
+## Trajectory DE testing
+
+We use the `scLANE` package to perform trajectory differential expression testing across latent time for the top 3000 HVGs.
+
+```{r}
+cell_offset <- createCellOffset(seu_panc)
+pt_df <- data.frame(LT = seu_panc$latent_time)
+hvgs <- HVFInfo(seu_panc) %>% 
+        filter(mean > 0.1) %>% 
+        arrange(desc(variance.standardized)) %>% 
+        mutate(gene = rownames(.)) %>% 
+        select(gene, 
+               mean, 
+               variance, 
+               variance.standardized) %>% 
+        slice_head(n = 3000)
+scLANE_models <- testDynamic(seu_panc, 
+                             pt = pt_df, 
+                             genes = hvgs$gene, 
+                             size.factor.offset = cell_offset, 
+                             n.cores = 8L, 
+                             verbose = FALSE)
+```
+
+We generate a tidy table of DE test statistics, then identify a set of dynamic genes.
+
+```{r}
+scLANE_de_res_tidy <- getResultsDE(scLANE_models)
+dyn_genes <- filter(scLANE_de_res_tidy, Gene_Dynamic_Overall == 1) %>% 
+             distinct(Gene) %>% 
+             pull(Gene)
+```
+
+## `tradeSeq` DE analysis
+
+```{r}
+ts_start <- Sys.time()
+bioc_par <- BiocParallel::MulticoreParam(workers = 8L, RNGseed = 312)
+spliced_counts <- as.matrix(seu_panc@assays$spliced$counts)[hvgs$gene, ]
+k_eval <- evaluateK(spliced_counts, 
+                    pseudotime = pt_df, 
+                    cellWeights = matrix(rep(1, nrow(pt_df)), ncol = 1), 
+                    offset = log(1 / cell_offset), 
+                    k = 3:10, 
+                    plot = FALSE, 
+                    nGenes = 500, 
+                    verbose = FALSE, 
+                    parallel = TRUE, 
+                    BPPARAM = bioc_par)
+best_k <- c(3:10)[which.min(abs(colMeans(k_eval - rowMeans(k_eval))))]  # choose k w/ lowest MAD from mean AIC 
+ts_models <- fitGAM(spliced_counts, 
+                    pseudotime = pt_df, 
+                    cellWeights = matrix(rep(1, nrow(pt_df)), ncol = 1), 
+                    offset = log(1 / cell_offset), 
+                    nknots = best_k, 
+                    sce = FALSE, 
+                    parallel = TRUE, 
+                    verbose = FALSE, 
+                    BPPARAM = bioc_par)
+BiocParallel::bpstop(bioc_par)
+ts_end <- Sys.time()
+ts_diff <- ts_end - ts_start
+ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
+                             arrange(desc(waldStat)) %>% 
+                             mutate(gene = rownames(.), 
+                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
+                             relocate(gene)
+```
+
+The runtime for `tradeSeq` with `r best_k` knots per gene is: 
+
+```{r}
+ts_diff
+```
+
+## Cell fate analysis with `CellRank`
+
+We'll now use the `CellRank` package to analyze initial and terminal states in our data. 
+
+### CytoTRACE kernel 
+
+We begin by computing a CytoTRACE kernel; CytoTRACE uses the number of genes expressed in a cell as a proxy measurement for differentiation potential, with the assumption being that cells expressing more genes are more likely to be progenitor celltypes & vice versa.  
+
+```{python}
+ctk = CytoTRACEKernel(ad_panc).compute_cytotrace()
+```
+
+We plot the CytoTRACE scores below, and see that the ductal & endocrine progenitor populations score most highly (as expected). 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: UMAP embedding colored by CytoTRACE score and pseudotime. Higher scores indicate higher differentiation potential. 
+#| label: fig-umap-cytotrace
+sc.pl.embedding(
+    ad_panc,
+    color=['ct_score', 'ct_pseudotime'],
+    basis='umap',
+    color_map='magma', 
+    show=False, 
+    size=30, 
+    alpha=0.75, 
+    title=['CytoTRACE score', 'CytoTRACE Pseudotime']
+)
+plt.show()
+```
+
+Next, we estimate a cell-cell transition probability matrix. 
+
+```{python}
+#| results: hide
+ctk.compute_transition_matrix(threshold_scheme='soft', show_progress_bar=False)
+```
+
+Projecting that matrix onto our UMAP embedding reveals the differentiation directions of our cells based on their differentiation potential. The directionality in the mature celltypes is uncertain and in some cases outright wrong, which makes sense as their CytoTRACE scores are all very similar. This can be ameliorated by combining the CytoTRACE score kernel with kernels derived from other modalities that better capture the heterogeneity of the mature endocrine cells. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: Streamline embedding plot showing differentiation directions as inferred from CytoTRACE scores.
+#| label: fig-project-CT
+ctk.plot_projection(
+  basis='umap', 
+  recompute=True, 
+  color='celltype',
+  title='',
+  legend_loc='right margin', 
+  size=30, 
+  alpha=0.75, 
+  linewidth=2, 
+  frameon=True, 
+  show=False
+)
+plt.gca().set_xlabel('UMAP 1')
+plt.gca().set_ylabel('UMAP 2')
+plt.show()  
+```
+
+### Velocity kernel
+
+Moving on, we use the RNA velocity estimates to create a velocity kernel. Using Monte Carlo sampling we can propagate forward the velocity uncertainties we computed earlier to the cell-cell transition probability matrix. 
+
+```{python}
+#| results: hide
+vk = cr.kernels.VelocityKernel(ad_panc)
+vk.compute_transition_matrix(
+    model='monte_carlo', 
+    similarity='cosine', 
+    seed=312, 
+    show_progress_bar=False
+)
+```
+
+The velocity kernel projection of course looks highly similar to the velocity streamline embedding computed after running `scVelo`. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: Streamline embedding plot showing differentiation directions as inferred from RNA velocity vectors.
+#| label: fig-project-velocity
+vk.plot_projection(
+  basis='umap', 
+  recompute=True, 
+  color='celltype',
+  title='',
+  legend_loc='right margin', 
+  size=30, 
+  alpha=0.75, 
+  linewidth=2, 
+  frameon=True, 
+  show=False
+)
+plt.gca().set_xlabel('UMAP 1')
+plt.gca().set_ylabel('UMAP 2')
+plt.show()  
+```
+
+### Pseudotime kernel
+
+Lastly, we create a pseudotime-based kernel using diffusion pseudotime, then compute another cell-cell transition probability matrix. 
+
+```{python}
+#| results: hide
+#| message: false
+#| warning: false
+pk = PseudotimeKernel(ad_panc, time_key='dpt_pseudotime')
+pk.compute_transition_matrix(threshold_scheme='soft', show_progress_bar=False)
+```
+
+Plotting the matrix's projection onto our UMAP embedding shows smooth transitions from the ductal cells through the endocrine progenitors towards the mature endocrine celltypes. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: UMAP embedding overlaid with streamline arrows derived from diffusion pseudotime. 
+#| label: fig-project-PT
+pk.plot_projection(
+  basis='umap', 
+  recompute=True, 
+  color='celltype',
+  title='',
+  legend_loc='right margin', 
+  size=30, 
+  alpha=0.75, 
+  linewidth=2, 
+  frameon=True, 
+  show=False
+)
+plt.gca().set_xlabel('UMAP 1')
+plt.gca().set_ylabel('UMAP 2')
+plt.show()
+```
+
+### Combined kernel
+
+A key feature of `CellRank` is the ability to combine kernels in a weighted manner, which we do so below using unequal weights. This provides us with a coherent cell-cell transition probability matrix derived from multiple data modalities. 
+
+```{python}
+ck = 0.25 * ctk + 0.5 * vk + 0.25 * pk
+```
+
+We visualize the combined projection below. It's evident that combining the different modalities has resulted in a harmonized, accurate representation of the transitions between celltypes. 
+
+```{python}
+#| code-fold: true
+#| message: false
+#| warning: false
+#| fig-cap: UMAP embedding overlaid with streamline arrows derived from the combined kernel. 
+#| label: fig-project-combined
+ck.plot_projection(
+  basis='umap', 
+  recompute=True, 
+  color='celltype',
+  title='',
+  legend_loc='right margin', 
+  size=30, 
+  alpha=0.75, 
+  linewidth=2, 
+  frameon=True, 
+  show=False
+)
+plt.gca().set_xlabel('UMAP 1')
+plt.gca().set_ylabel('UMAP 2')
+plt.show()
+```
+
+We can also simulate random walks on the high-dimensional cell-cell graph starting from the ductal population. We see that the random walks tend to terminate in the mature endocrine celltypes, as expected. 
+
+```{python}
+#| message: false
+#| warning: false
+#| code-fold: true
+#| fig-cap: UMAP embedding overlaid with random walks along the cell-cell graph derived from the combined kernel. Starting points are highlighted in black and ending points in yellow.  
+#| label: fig-RW-combined
+ck.plot_random_walks(
+    n_sims=100,
+    start_ixs={'celltype': 'Ductal'},
+    basis='umap',
+    color='celltype',
+    legend_loc='right margin',
+    seed=312, 
+    frameon=True, 
+    title='', 
+    linewidth=0.5, 
+    linealpha=0.25, 
+    ixs_legend_loc='upper', 
+    show_progress_bar=False
+)
+plt.gca().set_xlabel('UMAP 1')
+plt.gca().set_ylabel('UMAP 2')
+plt.show()
+```
+
+# Save data  {#sec-save}
+
+```{r}
+saveRDS(seu_panc, file = "../../data/pancreas_E15.5/seu_panc.Rds")
+saveRDS(scLANE_models, file = "../../data/pancreas_E15.5/scLANE_models.Rds")
+saveRDS(ts_models, file = "../../data/pancreas_E15.5/ts_models.Rds")
+```
+
+# Session info {#sec-SI}
+
+```{r}
+sessioninfo::session_info()
+```

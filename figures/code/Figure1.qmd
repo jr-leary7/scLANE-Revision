@@ -1,0 +1,476 @@
+---
+title: "Figure 1"
+subtitle: "Bacher Group"
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(comment = NA)
+reticulate::use_condaenv("../../../../py_envs/scLANE_env2/", required = TRUE)
+set.seed(312)  # lucky seed
+```
+
+# Libraries {#sec-libs}
+
+```{r}
+#| message: false
+#| warning: false
+library(dplyr)      # data manipulation
+library(scLANE)     # trajectory DE testing
+library(Seurat)     # scRNA-seq tools
+library(ggplot2)    # pretty plots
+library(slingshot)  # pseudotime inference
+library(patchwork)  # plot alignment
+```
+
+# Visualization tools {#sec-viz-tools}
+
+We define a set of color palettes that we'll use throughout our analysis. 
+
+```{r}
+palette_heatmap <- paletteer::paletteer_d("wesanderson::Zissou1")
+palette_timepoint <- paletteer::paletteer_d("ggsci::category20_d3")
+palette_cluster <- paletteer::paletteer_d("ggsci::default_igv")
+palette_lineage <- paletteer::paletteer_d("MetBrewer::Juarez")
+#palette_subj <- c("#E64B35FF", "#4DBBD5FF", "#612A79FF", "#00991AFF", "#DC0000FF", "#003399FF", "#FFC20AFF", "#E377FFFF")
+palette_subj <- c("#2A29CAFF", "#E9D81EFF", "#09A514FF", "#D19609FF", "#AD4DE8FF", "#DC0000FF", "#8ECE8AFF", "#52BADAFF")
+```
+
+# Data {#sec-data}
+
+## Zebrafish 
+
+We first read in the processed counts stored in our `Seurat` object. 
+
+```{r}
+seu_fish <- readRDS("../../data/zebrafish/seu_fish.Rds")
+cell_offset <- createCellOffset(seu_fish)
+```
+
+Continuing on, we import the results from `Slingshot`. 
+
+```{r}
+#| message: false
+#| warning: false
+sling_res <- readRDS("../../data/zebrafish/sling_res.Rds")
+sling_curves <- slingCurves(sling_res, as.df = TRUE)
+sling_mst <- slingMST(sling_res, as.df = TRUE)
+sling_pt <- slingPseudotime(sling_res) %>%
+            as.data.frame() %>%
+            mutate(cell = rownames(.),
+                   across(contains("Lineage"), \(x) (x - min(x, na.rm = T)) / (max(x, na.rm = T) - min(x, na.rm = T))), 
+                   .before = 1) %>%
+            rowwise() %>%
+            mutate(PT_Overall = mean(c_across(contains("Lineage")), na.rm = TRUE)) %>%
+            ungroup()
+pt_df <- select(sling_pt, -c(PT_Overall, cell)) %>% 
+         as.data.frame() %>% 
+         magrittr::set_rownames(seu_fish$cell) %>% 
+         magrittr::set_colnames(c("PT_P", "PT_N"))
+embed_df <- data.frame(cell = seu_fish$cell, 
+                       cell_lineage = seu_fish$lineages, 
+                       cell_timepoint = seu_fish$timepoint, 
+                       cluster = seu_fish$seurat_clusters, 
+                       f1 = seu_fish@reductions$fdg@cell.embeddings[, 1], 
+                       f2 = seu_fish@reductions$fdg@cell.embeddings[, 2], 
+                       PT_P = sling_pt$Lineage1, 
+                       PT_N = sling_pt$Lineage2, 
+                       mean_PT = sling_pt$PT_Overall)
+```
+
+We next import the models we fit using `scLANE`. 
+
+```{r}
+scLANE_models <- readRDS("../../data/zebrafish/scLANE_models.Rds")
+scLANE_de_res <- getResultsDE(scLANE_models) %>% 
+                 mutate(Lineage_Name = if_else(Lineage == "A", 
+                                               "Prechordal Plate Lineage", 
+                                               "Notochord Lineage")) 
+```
+
+## Simulated data
+
+Lastly, we read in two representative simulated datasets for the GEE & GLMM use cases. 
+
+```{r}
+sim_gee <- readRDS("../../data/simulation/Figure1_sim_gee.Rds")
+sim_glmm <- readRDS("../../data/simulation/Figure1_sim_glmm.Rds")
+```
+
+# Figure 1 {#sec-fig1}
+
+## A
+
+```{r}
+#| fig-width: 3.6
+#| fig-height: 2.9
+Fig_1A <- ggplot(embed_df, aes(x = f1, y = f2, color = mean_PT)) + 
+          geom_point(alpha = 0.75, 
+                     size = 1.5, 
+                     stroke = 0) + 
+          geom_path(data = sling_curves,
+                    mapping = aes(x = FR_1, y = FR_2, group = Lineage), 
+                    color = "black", 
+                    linewidth = 1, 
+                    alpha = 0.75, 
+                    lineend = "round") + 
+          scale_color_gradientn(colors = palette_heatmap) + 
+          labs(x = "Dim 1",
+               y = "Dim 2", 
+               color = "Pseudotime") + 
+          theme_scLANE(base.size = 9, umap = TRUE) + 
+          theme(axis.text = element_blank(), 
+                axis.ticks = element_blank())
+Fig_1A
+```
+
+```{r}
+ggsave("Figure_1A.png",
+       plot = Fig_1A, 
+       device = "png", 
+       path = "../png/",
+       width = 3.6, 
+       height = 2.9, 
+       units = "in", 
+       dpi = 300)
+```
+
+## B 
+
+```{r}
+#| fig-width: 3.6
+#| fig-height: 2.9
+Fig1_gene <- "FRZB"
+X_pred <- pt_df[!is.na(pt_df$PT_P), 1, drop = FALSE]
+Y <- seu_fish@assays$RNA$counts[Fig1_gene, ][!is.na(pt_df$PT_P)]
+X <- round(X_pred[, 1], 4)
+Fig_1B <- data.frame(pseudotime = X_pred[, 1], 
+                     rna = unname(Y), 
+                     size_factor = cell_offset[!is.na(pt_df$PT_P)], 
+                     pseudotime_rounded = X) %>% 
+          mutate(rna_log1p = log1p(rna * size_factor)) %>% 
+          ggplot(aes(x = pseudotime, y = rna, color = pseudotime)) + 
+          geom_point(size = 2, 
+                     stroke = 0, 
+                     alpha = 0.5, 
+                     show.legend = FALSE) +
+          scale_color_gradientn(colors = palette_heatmap) +
+          labs(x = "Pseudotime", y = "Expression") + 
+          theme_scLANE(base.size = 9)
+Fig_1B
+```
+
+```{r}
+ggsave("Figure_1B.png",
+       plot = Fig_1B, 
+       device = "png", 
+       path = "../png/",
+       width = 3.6, 
+       height = 2.9, 
+       units = "in", 
+       dpi = 300)
+```
+
+## C
+
+```{r}
+#| fig-width: 7.3
+#| fig-height: 3
+#| message: false
+#| warning: false
+X_red1 <- scLANE:::min_span(X_red = X, q = 1, minspan = NULL)
+X_red2 <- scLANE:::max_span(X_red = X, q = 1)
+X_red <- intersect(X_red1, X_red2)
+q05 <- quantile(X_pred[, 1], 0.05)
+q95 <- quantile(X_pred[, 1], 0.95)
+X_red <- X_red[X_red > q05 & X_red < q95]
+if (length(X_red) > 50) {
+  set.seed(312)
+  X_red <- sample(X_red, size = 50)
+}
+p0 <- data.frame(pseudotime = X_pred[, 1], 
+                 rna = unname(Y), 
+                 size_factor = cell_offset[!is.na(pt_df$PT_P)], 
+                 pseudotime_rounded = X) %>% 
+      mutate(rna_log1p = log1p(rna * size_factor)) %>% 
+      rowwise() %>% 
+      mutate(candidate_knot = if_else(pseudotime_rounded %in% X_red, "Knot", "NotKnot")) %>% 
+      ungroup() %>% 
+      arrange(desc(candidate_knot)) %>% 
+      ggplot(aes(x = pseudotime, y = rna)) + 
+      geom_point(aes(color = candidate_knot, alpha = candidate_knot, size = candidate_knot), 
+                 stroke = 0, 
+                 show.legend = FALSE) +
+      scale_color_manual(values = c("firebrick", "grey10")) + 
+      scale_alpha_manual(values = c(1, 0.25)) + 
+      scale_size_manual(values = c(1.75, 1)) + 
+      labs(x = "Pseudotime", 
+           y = "Expression", 
+           title = "Candidate knot\nselection & evaluation") + 
+      theme_scLANE(base.size = 9) + 
+      theme(plot.title = element_text(hjust = 0.5, size = 10))
+model_FRZB <- marge2(X_pred = X_pred, 
+                     Y = Y, 
+                     Y.offset = cell_offset[!is.na(pt_df$PT_P)], 
+                     M = 5, 
+                     approx.knot = TRUE, 
+                     return.basis = TRUE)
+beta0 <- coef(model_FRZB$final_mod)[1]
+beta1 <- coef(model_FRZB$final_mod)[2]
+beta2 <- coef(model_FRZB$final_mod)[3]
+p1 <- as.data.frame(model_FRZB$basis_mtx) %>% 
+      mutate(pseudotime = X_pred[, 1], 
+             rna = unname(Y), 
+             size_factor = cell_offset[!is.na(pt_df$PT_P)], 
+             rna_log1p = log1p(rna * size_factor)) %>% 
+      ggplot(aes(x = pseudotime, y = rna)) + 
+      geom_point(stroke = 0, 
+                 alpha = 0.5, 
+                 size = 1, 
+                 color = "grey30") +
+      geom_vline(data = data.frame(pseudotime = extractBreakpoints(model_FRZB)$Breakpoint), 
+                 mapping = aes(xintercept = pseudotime), 
+                 linetype = "dashed", 
+                 color = "firebrick", 
+                 linewidth = 0.75) + 
+      geom_line(aes(y = beta0 + unname(beta1) * !!sym(names(beta1))), 
+                color = "steelblue2", 
+                linewidth = 1.5, 
+                alpha = 0.85) + 
+      geom_line(aes(y = beta0 + unname(beta2) * !!sym(names(beta2))), 
+                color = "steelblue4", 
+                linewidth = 1.5, 
+                alpha = 0.85) + 
+      scale_y_continuous(limits = c(0, NA)) + 
+      labs(x = "Pseudotime", 
+           y = "Expression", 
+           title = "Hinge & basis\nfunction selection") + 
+      theme_scLANE(base.size = 9) + 
+      theme(plot.title = element_text(hjust = 0.5, size = 10))
+p2 <- getFittedValues(scLANE_models, 
+                      genes = "FRZB", 
+                      pt = pt_df, 
+                      expr.mat = seu_fish, 
+                      size.factor.offset = cell_offset, 
+                      log1p.norm = FALSE) %>% 
+      filter(lineage == "A") %>% 
+      ggplot(aes(x = pt, y = rna / size_factor)) + 
+      geom_point(size = 1, 
+                 stroke = 0, 
+                 alpha = 0.5, 
+                 color = "grey30") + 
+      geom_vline(data = data.frame(pseudotime = extractBreakpoints(model_FRZB)$Breakpoint), 
+                 mapping = aes(xintercept = pseudotime), 
+                 linetype = "dashed", 
+                 linewidth = 0.75, 
+                 color = "firebrick") + 
+      geom_ribbon(aes(ymin = scLANE_ci_ll, ymax = scLANE_ci_ul), 
+                  fill = "steelblue2", 
+                  alpha = 0.5, 
+                  linewidth = 0) + 
+      geom_line(aes(y = scLANE_pred), 
+                color = "steelblue4", 
+                linewidth = 0.75) + 
+      annotate(geom = "label",
+               alpha = 0.5, 
+               x = 0.05, 
+               y = 7.5, 
+               label.size = 0.5, 
+               family = "Myriad Pro", 
+               hjust = 0, 
+               size = 2.5, 
+               label = paste0("beta * {phantom(0) == phantom()} * phantom() * ", 
+                              round(scLANE_models$FRZB$Lineage_A$Gene_Dynamics$Slope.Segment1, 1)), 
+               parse = TRUE) + 
+      annotate(geom = "label",
+               alpha = 0.5, 
+               x = 0.575, 
+               y = 40, 
+               label.size = 0.5, 
+               family = "Myriad Pro", 
+               hjust = 0, 
+               size = 2.5, 
+               label = paste0("beta * {phantom(0) == phantom()} * phantom() * ",  
+                              round(scLANE_models$FRZB$Lineage_A$Gene_Dynamics$Slope.Segment2, 1)), 
+               parse = TRUE) + 
+      annotate(geom = "label",
+               alpha = 0.5, 
+               x = 0.68, 
+               y = 10, 
+               label.size = 0.5, 
+               family = "Myriad Pro", 
+               hjust = 0, 
+               size = 2.5, 
+               label = paste0("beta * {phantom(0) == phantom()} * phantom() * ",  
+                              round(scLANE_models$FRZB$Lineage_A$Gene_Dynamics$Slope.Segment3, 1)), 
+               parse = TRUE) + 
+      labs(x = "Pseudotime", 
+           y = "Expression", 
+           title = "Final model &\ngene-specific summary") + 
+      theme_scLANE(base.size = 9) + 
+      theme(plot.title = element_text(hjust = 0.5, size = 10))
+Fig_1C <- (p0 | p1 | p2) + 
+          plot_layout(axes = "collect")
+Fig_1C
+```
+
+```{r}
+ggsave("Figure_1C.png",
+       plot = Fig_1C, 
+       device = "png", 
+       path = "../png/",
+       width = 7.3, 
+       height = 3, 
+       units = "in", 
+       dpi = 300)
+```
+
+## D 
+
+```{r, fig.width=7.3, fig.height=3}
+#| fig-width: 7.3
+#| fig-height: 3
+#| message: false
+#| warning: false
+offset_gee <- createCellOffset(sim_gee)
+offset_glmm <- createCellOffset(sim_glmm)
+p3 <- data.frame(pt_norm = sim_gee$cell_time_normed, 
+                 mrna = log1p(counts(sim_gee)["AARS", ] * offset_gee)) %>% 
+      ggplot(aes(x = pt_norm, y = mrna)) + 
+      geom_point(size = 1.5, 
+                 alpha = 0.6, 
+                 stroke = 0, 
+                 show.legend = FALSE, 
+                 color = palette_subj[-c(1:7)]) + 
+      geom_smooth(color = "black", se = FALSE) + 
+      scale_y_continuous(labels = scales::label_number(accuracy = 1), breaks = c(0, 1, 2)) +  
+      labs(x = "Pseudotime",
+           y = "Normalized Expression", 
+           title = "Single-subject (GLM)") + 
+      theme_scLANE(base.size = 9) + 
+      theme(axis.title = element_blank(), 
+            plot.title = element_text(hjust = 0.5, size = 10))
+p4 <- data.frame(subject_id = gsub("P", "S", sim_gee$subject_id), 
+                 pt_norm = sim_gee$cell_time_normed, 
+                 mrna = log1p(counts(sim_gee)["GPATCH8", ] * offset_gee)) %>% 
+      ggplot(aes(x = pt_norm, y = mrna, color = subject_id)) + 
+      facet_wrap(~subject_id, 
+                 ncol = 1, 
+                 nrow = 3, 
+                 strip.position = "right") + 
+      geom_point(size = 1.5, 
+                 alpha = 0.6,
+                 stroke = 0, 
+                 show.legend = FALSE) + 
+      geom_smooth(color = "black", se = FALSE) + 
+      scale_y_continuous(labels = scales::label_number(accuracy = 1)) + 
+      scale_color_manual(values = palette_subj[1:3]) + 
+      labs(x = "Pseudotime", 
+           y = "Normalized Expression", 
+           title = "Multi-subject (GEE)") + 
+      theme_scLANE(base.size = 9) + 
+      theme(strip.text.y.right = element_text(angle = 0), 
+            axis.title = element_blank(), 
+            plot.title = element_text(hjust = 0.5, size = 10))
+p5a <- data.frame(subject_id = gsub("P", "S", sim_glmm$subject_id), 
+                  group_id = sim_glmm$group_id, 
+                  pt_norm = sim_glmm$cell_time_normed, 
+                  mrna_norm = log1p(counts(sim_glmm)["NRP1", ] * offset_glmm)) %>% 
+       filter(group_id == "Group1") %>% 
+       mutate(group_id = gsub("Group", "Group ", group_id)) %>% 
+       ggplot(aes(x = pt_norm, y = mrna_norm, color = subject_id)) + 
+       ggh4x::facet_grid2(group_id~subject_id, 
+                           strip = ggh4x::strip_themed(clip = "off", background_x = list(element_rect(linewidth = 0.75)))) + 
+       geom_point(size = 1.5, 
+                  alpha = 0.6,
+                  stroke = 0,
+                  show.legend = FALSE) +
+       geom_smooth(color = "black", se = FALSE) + 
+       scale_y_continuous(labels = scales::label_number(accuracy = 1), n.breaks = 3) + 
+       scale_color_manual(values = palette_subj[-c(1:3)]) + 
+       labs(x = "Pseudotime", 
+            y = "Normalized Expression", 
+            title = "Multi-subject (GLMM)") + 
+       theme_scLANE(base.size = 9) + 
+       theme(axis.title = element_blank(), 
+             plot.title = element_text(hjust = 0.5, size = 10), 
+             axis.text.x = element_blank(), 
+             axis.ticks.x = element_blank(), 
+             axis.line.x = element_blank())
+p5b <- data.frame(subject_id = gsub("P", "S", sim_glmm$subject_id), 
+                  group_id = sim_glmm$group_id, 
+                  pt_norm = sim_glmm$cell_time_normed, 
+                  mrna_norm = log1p(counts(sim_glmm)["NRP1", ] * offset_glmm)) %>%
+       filter(group_id == "Group2") %>% 
+       mutate(group_id = gsub("Group", "Group ", group_id)) %>% 
+       ggplot(aes(x = pt_norm, y = mrna_norm, color = subject_id)) + 
+       ggh4x::facet_grid2(group_id~subject_id, 
+                          strip = ggh4x::strip_themed(clip = "off", background_x = list(element_rect(linewidth = 0.75)))) + 
+       geom_point(size = 1.5, 
+                  alpha = 0.6,
+                  stroke = 0,
+                  show.legend = FALSE) +
+       geom_smooth(color = "black", se = FALSE) + 
+       scale_y_continuous(labels = scales::label_number(accuracy = 1), n.breaks = 3) + 
+       scale_color_manual(values = palette_subj[-c(1:5)]) + 
+       labs(x = "Pseudotime", y = "Normalized Expression") + 
+       theme_scLANE(base.size = 9) + 
+       theme(axis.title = element_blank())
+Fig_1D <- (p3 | p4 | (p5a / p5b) ) + 
+          plot_layout(widths = c(0.65, 0.65, 1), axes = "collect")
+Fig_1D <- ggpubr::annotate_figure(p = ggpubr::ggarrange(Fig_1D), 
+                                  bottom = grid::textGrob("Pseudotime", gp = grid::gpar(fontsize = 9)), 
+                                  left = grid::textGrob("Normalized Expression", 
+                                                        rot = 90, 
+                                                        gp = grid::gpar(fontsize = 9)))
+Fig_1D
+```
+
+```{r}
+ggsave("Figure_1D.png",
+       plot = Fig_1D, 
+       device = "png", 
+       path = "../png/",
+       width = 7.3, 
+       height = 3, 
+       units = "in", 
+       dpi = 300)
+```
+
+# Session info {#sec-SI}
+
+```{r}
+sessioninfo::session_info()
+```

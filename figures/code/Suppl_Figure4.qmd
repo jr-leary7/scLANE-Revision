@@ -1,0 +1,552 @@
+---
+title: "Supplementary Figure 4"
+subtitle: "Bacher Group"
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(comment = NA)
+reticulate::use_condaenv("../../../../py_envs/scLANE_env2/", required = TRUE)
+set.seed(312)  # lucky seed
+```
+
+# Libraries {#sec-libs}
+
+We begin by loading the prerequisite libraries needed to make our plots. 
+
+## R
+
+```{r}
+#| message: false
+#| warning: false
+library(purrr)      # functional programming
+library(dplyr)      # data manipulation
+library(scLANE)     # trajectory DE
+library(Seurat)     # scRNA-seq tools
+library(ggplot2)    # pretty plots
+library(biomaRt)    # gene annotation
+library(tradeSeq)   # more trajectory DE
+library(slingshot)  # pseudotime estimation
+rename <- dplyr::rename
+reduce <- purrr::reduce
+select <- dplyr::select
+```
+
+## Python
+
+```{python}
+#| message: false
+#| warning: false
+import warnings                                                 # filter out warnings
+import numpy as np                                              # linear algebra tools
+import scanpy as sc                                             # scRNA-seq tools
+import pandas as pd                                             # DataFrames
+import anndata as ad                                            # scRNA-seq data structures
+import scvelo as scv                                            # RNA velocity
+import cellrank as cr                                           # cell fate estimation
+import matplotlib.pyplot as plt                                 # pretty plots
+from matplotlib import gridspec                                 # subplot alignment
+from cellrank.kernels import PseudotimeKernel, CytoTRACEKernel  # CellRank kernels
+```
+
+```{python}
+warnings.simplefilter('ignore', category=UserWarning)
+sc.settings.verbosity = 0
+scv.settings.verbosity = 0
+cr.settings.verbosity = 0
+```
+
+# Visualization tools {#sec-viz-tools}
+
+First we define a `ggplot` guide that will make our legends cleaner and easier to read. 
+
+```{r}
+guide_umap <- function(key.size = 5) {
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, alpha = 1, stroke = 0.25)))
+}
+```
+
+Next we define a theme for `matplotlib`. 
+
+```{python}
+base_size = 9
+plt.rcParams.update({
+    # font
+    'font.size': base_size, 
+    'font.weight': 'normal',
+    # figure
+    'figure.dpi': 300, 
+    'figure.edgecolor': 'white', 
+    'figure.facecolor': 'white', 
+    'figure.figsize': (6, 4), 
+    'figure.constrained_layout.use': True,
+    # axes
+    'axes.edgecolor': 'black',
+    'axes.grid': False,
+    'axes.labelpad': 2.75,
+    'axes.labelsize': base_size * 0.8,
+    'axes.linewidth': 1.5,
+    'axes.spines.right': False,
+    'axes.spines.top': False,
+    'axes.titlelocation': 'left',
+    'axes.titlepad': 11,
+    'axes.titlesize': base_size,
+    'axes.titleweight': 'normal',
+    'axes.xmargin': 0.1, 
+    'axes.ymargin': 0.1, 
+    # legend
+    'legend.borderaxespad': 1,
+    'legend.borderpad': 0.5,
+    'legend.columnspacing': 2,
+    'legend.fontsize': base_size * 0.8,
+    'legend.frameon': False,
+    'legend.handleheight': 1,
+    'legend.handlelength': 1.2,
+    'legend.labelspacing': 1,
+    'legend.title_fontsize': base_size, 
+    'legend.markerscale': 1.5
+})
+```
+
+Lastly we define a consistent set of color palettes. 
+
+```{r}
+palette_heatmap <- paletteer::paletteer_d("MetBrewer::Cassatt1", direction = -1)
+palette_celltype <- as.character(paletteer::paletteer_d("ggsci::category10_d3"))[1:6]
+names(palette_celltype) <- c("HSC", "Kupffer cell", "Monocyte-macrophage", "Monocyte", "Monocyte precursor", "Neutrophil-myeloid progenitor")
+palette_cluster <- paletteer::paletteer_d("ggsci::default_igv")
+```
+
+# Data  {#sec-data}
+
+## Processed counts
+
+```{r}
+seu_myeloid <- readRDS("../../data/hematopoesis/seu_myeloid.Rds")
+cell_offset <- createCellOffset(seu_myeloid)
+```
+
+```{python}
+ad_myeloid = ad.read_h5ad('../../data/hematopoesis/ad_myeloid.h5ad')
+```
+
+## Models from `scLANE`
+
+```{r}
+scLANE_models <- readRDS("../../data/hematopoesis/scLANE_models.Rds")
+scLANE_de_res <- getResultsDE(scLANE_models)
+dyn_genes <- filter(scLANE_de_res, Gene_Dynamic_Overall == 1) %>% 
+             pull(Gene)
+```
+
+## Models from `tradeSeq`
+
+```{r}
+ts_models <- readRDS("../../data/hematopoesis/ts_models.Rds")
+ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
+                             arrange(desc(waldStat)) %>% 
+                             mutate(gene = rownames(.), 
+                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
+                             relocate(gene)
+dyn_genes_ts <- filter(ts_de_res, gene_dynamic_overall == 1) %>% 
+                distinct(gene) %>% 
+                pull(gene)
+```
+
+## `Slingshot` output
+
+```{r}
+sling_res <- readRDS("../../data/hematopoesis/sling_res.Rds")
+sling_curves <- slingCurves(sling_res, as.df = TRUE)
+sling_mst <- slingMST(sling_res, as.df = TRUE)
+sling_pt <- slingPseudotime(sling_res) %>%
+            as.data.frame() %>%
+            mutate(cell = rownames(.),
+                   .before = 1) %>%
+            rename(PT = Lineage1) %>% 
+            mutate(PT = (PT - min(PT)) / (max(PT) - min(PT)))
+pt_df <- as.data.frame(sling_pt) %>% 
+         magrittr::set_rownames(.$cell) %>% 
+         select(-cell)
+```
+
+## Embedding dataframe
+
+```{r}
+embed_df <- data.frame(fa1 = seu_myeloid@reductions$fa@cell.embeddings[, 1], 
+                       fa2 = seu_myeloid@reductions$fa@cell.embeddings[, 2], 
+                       umap1 = seu_myeloid@reductions$umap@cell.embeddings[, 1], 
+                       umap2 = seu_myeloid@reductions$umap@cell.embeddings[, 2],
+                       leiden = factor(seu_myeloid$leiden), 
+                       celltype = seu_myeloid$celltype, 
+                       PT_sling = sling_pt$PT, 
+                       PT_diffmap = seu_myeloid$dpt_pseudotime) %>% 
+            mutate(celltype_short = case_when(celltype == "HSC" ~ "HSC", 
+                                              celltype == "Kupffer cell" ~ "Kupffer cell", 
+                                              celltype == "Monocyte" ~ "Monocyte", 
+                                              celltype == "Monocyte precursor" ~ "Mono. pre.", 
+                                              celltype == "Monocyte-macrophage" ~ "Mono-macro.", 
+                                              celltype == "Neutrophil-myeloid progenitor" ~ "Neutro. prog.", 
+                                              TRUE ~ NA_character_))
+pseudotime_order <- with_groups(embed_df, 
+                                c(celltype, celltype_short),
+                                summarise, 
+                                mu = mean(PT_sling)) %>% 
+                    arrange(mu)
+embed_df <- mutate(embed_df, 
+                   celltype = factor(celltype, levels = pseudotime_order$celltype), 
+                   celltype_short = factor(celltype_short, levels = pseudotime_order$celltype_short))
+```
+
+## Cell fate analysis with `CellRank`
+
+### CytoTRACE kernel 
+
+```{python}
+#| results: hide
+ctk = CytoTRACEKernel(ad_myeloid).compute_cytotrace()
+```
+
+```{r}
+embed_df <- mutate(embed_df, 
+                   ct_score = py$ad_myeloid$obs$ct_score, 
+                   ct_pseudotime = py$ad_myeloid$obs$ct_pseudotime)
+```
+
+# Supplemental Figure 4 {#sec-fig4}
+
+## A
+
+```{r}
+#| fig-width: 2.3
+#| fig-height: 2.5
+S_Fig_4A <- ggplot(embed_df, aes(x = celltype_short, y = ct_score, fill = celltype)) + 
+            ggbeeswarm::geom_quasirandom(aes(color = celltype),
+                                         show.legend = FALSE,
+                                         size = 1,
+                                         alpha = 0.3, 
+                                         stroke = 0) +
+            stat_summary(show.legend = FALSE, 
+                         fun = "mean", 
+                         color = "black", 
+                         geom = "point", 
+                         size = 1) + 
+            scale_color_manual(values = palette_celltype) + 
+            labs(y = "CytoTRACE Score") + 
+            theme_scLANE(base.size = 9) + 
+            theme(axis.title.x = element_blank(), 
+                  axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+S_Fig_4A
+```
+
+```{r}
+ggsave("Suppl_Figure_4A.png",
+       plot = S_Fig_4A, 
+       device = "png", 
+       path = "../png/",
+       width = 2.3, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 300)
+```
+
+## B
+
+```{r}
+#| fig-width: 2.5
+#| fig-height: 2.5
+S_Fig_4B <- ggplot(embed_df, aes(x = fa1, y = fa2, color = PT_sling)) + 
+            geom_point(size = 1, 
+                       stroke = 0, 
+                       alpha = 0.5) + 
+            scale_color_gradientn(colors = palette_heatmap) + 
+            labs(x = "FA 1", 
+                 y = "FA 2", 
+                 color = "Pseudotime") + 
+            theme_scLANE(base.size = 9) + 
+            theme(axis.text = element_blank(), 
+                  axis.ticks = element_blank(), 
+                  plot.title = element_blank(), 
+                  legend.position = "top", 
+                  legend.direction = "horizontal") + 
+            guides(color = guide_colorbar(title.position = "left", 
+                                          title.vjust = .1, 
+                                          label.position = "top", 
+                                          label.vjust = 0, 
+                                          barwidth = unit(1.25, "in"), 
+                                          barheight = unit(0.1, "in")))
+S_Fig_4B
+```
+
+```{r}
+ggsave("Suppl_Figure_4B.png",
+       plot = S_Fig_4B, 
+       device = "png", 
+       path = "../png/",
+       width = 2.5, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 300)
+```
+
+## C
+
+```{r}
+#| message: false
+#| warning: false
+smoothed_counts <- smoothedCountsMatrix(scLANE_models, 
+                                        pt = pt_df, 
+                                        genes = dyn_genes, 
+                                        size.factor.offset = cell_offset, 
+                                        log1p.norm = TRUE, 
+                                        n.cores = 4L)
+gene_embed <- embedGenes(smoothed_counts$Lineage_A, 
+                         pc.embed = 30, 
+                         pc.return = 4,
+                         k.param = 30,
+                         resolution.param = 0.25, 
+                         n.cores = 6L)
+```
+
+```{r}
+#| fig-width: 2.5
+#| fig-height: 2.5
+S_Fig_4C <- ggplot(gene_embed, aes(x = umap1, y = umap2, color = leiden)) + 
+            geom_point(size = 1.25, stroke = 0, alpha = 0.75) + 
+            scale_color_manual(values = paletteer::paletteer_d("MetBrewer::Lakota")) + 
+            labs(x= "UMAP 1",
+                 y = "UMAP 2", 
+                 color = "Gene Cluster") + 
+            theme_scLANE(base.size = 9) + 
+            theme(axis.text = element_blank(), 
+                  axis.ticks = element_blank(), 
+                  legend.position = "top") + 
+            guide_umap(key.size = 3)
+S_Fig_4C
+```
+
+```{r}
+ggsave("Suppl_Figure_4C.png",
+       plot = S_Fig_4C, 
+       device = "png", 
+       path = "../png/",
+       width = 2.5, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 300)
+```
+
+## D
+
+```{r}
+gene_clust_list <- split(gene_embed$gene, gene_embed$leiden)
+names(gene_clust_list) <- paste0("Leiden_", names(gene_clust_list))
+enrich_res <- gprofiler2::gost(gene_clust_list, 
+                               organism = "hsapiens", 
+                               ordered_query = FALSE, 
+                               multi_query = FALSE, 
+                               sources = "GO:BP", 
+                               significant = TRUE)
+top_terms <- with_groups(enrich_res$result, 
+                         query, 
+                         slice_head, 
+                         n = 10)
+unique_terms <- map(names(gene_clust_list), \(x) {
+  filter(enrich_res$result, 
+         query == x, 
+         !term_id %in% (filter(enrich_res$result, query != x) %>% pull(term_id)))
+})
+unique_terms <- reduce(unique_terms, rbind) %>% 
+                arrange(p_value)
+top_unique_terms <- with_groups(unique_terms, 
+                                query, 
+                                slice_head, 
+                                n = 10)
+program_labels <- c("stimulus response", 
+                    "differentiation", 
+                    "ribosome assembly", 
+                    "immune housekeeping", 
+                    "inflammatory response", 
+                    "cell cycle")
+seu_myeloid <- geneProgramScoring(seu_myeloid, 
+                                  genes = gene_embed$gene, 
+                                  gene.clusters = gene_embed$leiden, 
+                                  program.labels = program_labels)
+```
+
+```{r}
+#| fig-width: 4.3
+#| fig-height: 2.33
+S_Fig_4D <- mutate(embed_df, 
+                   differentiation = seu_myeloid$differentiation, 
+                   stimulus_response = seu_myeloid$stimulus_response, 
+                   inflammatory_response = seu_myeloid$inflammatory_response, 
+                   cell_cycle = seu_myeloid$cell_cycle) %>%
+            tidyr::pivot_longer(cols = c(differentiation, stimulus_response, inflammatory_response, cell_cycle), 
+                                names_to = "program", 
+                                values_to = "program_score") %>% 
+            mutate(program = case_when(program == "differentiation" ~ "Differentiation", 
+                                       program == "stimulus_response" ~ "Stimulus Response", 
+                                       program == "inflammatory_response" ~ "Inflammatory Response", 
+                                       program == "cell_cycle" ~ "Cell Cycle", 
+                                       TRUE ~ NA_character_)) %>% 
+            with_groups(program, 
+                        mutate, 
+                        program_score = (program_score - min(program_score)) / (max(program_score) - min(program_score))) %>% 
+            ggplot(aes(x = fa1, y = fa2, color = program_score)) + 
+            facet_wrap(~program, ncol = 2) + 
+            geom_point(size = 1, alpha = 0.5, stroke = 0) + 
+            scale_color_gradientn(colors = paletteer::paletteer_d("MetBrewer::Hiroshige", direction = -1), 
+                                 labels = scales::label_number(accuracy = 0.01)) + 
+            labs(x = "FA 1", 
+                 y = "FA 2", 
+                 color = "Program Score") + 
+            theme_scLANE(base.size = 9) + 
+            theme(axis.ticks = element_blank(), 
+                  axis.text = element_blank())
+S_Fig_4D
+```
+
+```{r}
+ggsave("Suppl_Figure_4D.png",
+       plot = S_Fig_4D, 
+       device = "png", 
+       path = "../png/",
+       width = 4.3, 
+       height = 2.33, 
+       units = "in", 
+       dpi = 300)
+```
+
+## E
+
+```{r}
+#| fig-width: 3
+#| fig-height: 2.33
+#| message: false
+#| warning: false
+S_Fig_4E <- mutate(embed_df, 
+                   differentiation = seu_myeloid$differentiation, 
+                   stimulus_response = seu_myeloid$stimulus_response, 
+                   inflammatory_response = seu_myeloid$inflammatory_response, 
+                   cell_cycle = seu_myeloid$cell_cycle) %>%
+            tidyr::pivot_longer(cols = c(differentiation, stimulus_response, inflammatory_response, cell_cycle), 
+                                names_to = "program", 
+                                values_to = "program_score") %>% 
+            mutate(program = case_when(program == "differentiation" ~ "Differentiation", 
+                                       program == "stimulus_response" ~ "Stimulus Response", 
+                                       program == "inflammatory_response" ~ "Inflammatory Response", 
+                                       program == "cell_cycle" ~ "Cell Cycle", 
+                                       TRUE ~ NA_character_)) %>% 
+            with_groups(program, 
+                        mutate, 
+                        program_score = (program_score - min(program_score)) / (max(program_score) - min(program_score))) %>% 
+            ggplot(aes(x = PT_sling, y = program_score, color = program)) + 
+            geom_smooth(method = "loess", se = FALSE, linewidth = 1.5) + 
+            scale_color_manual(values = paletteer::paletteer_d("ggsci::default_locuszoom")) + 
+            labs(x = "Pseudotime", y = "Program Score") + 
+            theme_scLANE(base.size = 9) + 
+            theme(legend.position = "top", 
+                  legend.title = element_blank(), 
+                  legend.margin = margin(b = -0.1, unit = "in")) + 
+            guides(color = guide_legend(ncol = 2, nrow = 2))
+S_Fig_4E
+```
+
+```{r}
+ggsave("Suppl_Figure_4E.png",
+       plot = S_Fig_4E, 
+       device = "png", 
+       path = "../png/",
+       width = 3, 
+       height = 2.33, 
+       units = "in", 
+       dpi = 300)
+```
+
+## F
+
+```{r}
+#| fig-width: 7.3
+#| fig-height: 4.5
+S_Fig_4F <- getFittedValues(scLANE_models, 
+                            genes = c("S100A8", "S100A9", "S100A12", "FCGR1A", "CD74", "FCN1", "PRTN3", "SELL", "CCL4"), 
+                            pt = pt_df, 
+                            expr.mat = seu_myeloid,  
+                            size.factor.offset = cell_offset, 
+                            cell.meta.data = select(seu_myeloid@meta.data, celltype)) %>% 
+            ggplot(aes(x = pt, y = rna_log1p)) + 
+            facet_wrap(~gene, 
+                       ncol = 3, 
+                       nrow = 3) + 
+            geom_point(aes(color = celltype), 
+                       size = 1, 
+                       alpha = 0.5, 
+                       stroke = 0) + 
+            geom_ribbon(aes(ymin = scLANE_ci_ll_log1p, ymax = scLANE_ci_ul_log1p), 
+                        linewidth = 0, 
+                        fill = "grey70", 
+                        alpha = 0.9) + 
+            geom_line(aes(y = scLANE_pred_log1p), 
+                      color = "black", 
+                      linewidth = 0.75) + 
+            scale_x_continuous(labels = scales::label_number(accuracy = 0.01)) + 
+            scale_color_manual(values = palette_celltype) + 
+            labs(x = "Pseudotime", 
+                 y = "Normalized Expression") + 
+            theme_scLANE(base.size = 9) + 
+            theme(legend.title = element_blank(), 
+                  strip.text.x = element_text(face = "italic")) + 
+            guide_umap(key.size = 3)
+S_Fig_4F
+```
+
+```{r}
+ggsave("Suppl_Figure_4F.png",
+       plot = S_Fig_4F, 
+       device = "png", 
+       path = "../png/",
+       width = 7.3, 
+       height = 4.5, 
+       units = "in", 
+       dpi = 300)
+```
+
+# Session info {#sec-SI}
+
+```{r}
+sessioninfo::session_info()
+```

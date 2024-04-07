@@ -1,0 +1,457 @@
+---
+title: "Figure 4"
+subtitle: "Bacher Group"
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(comment = NA)
+reticulate::use_condaenv("../../../../py_envs/scLANE_env2/", required = TRUE)
+set.seed(312)  # lucky seed
+```
+
+# Libraries {#sec-libs}
+
+We begin by loading the prerequisite libraries needed to make our plots. 
+
+```{r}
+#| message: false
+#| warning: false
+library(dplyr)       # data manipulation
+library(Seurat)      # scRNA-seq tools
+library(scLANE)      # trajectory DE
+library(ggplot2)     # pretty plots
+library(tradeSeq)    # more trajectory DE
+library(patchwork)   # plot alignment
+library(slingshot)   # pseudotime inference
+library(reticulate)  # Python interface
+```
+
+# Visualization tools {#sec-viz-tools}
+
+First we define a `ggplot` guide that will make our legends cleaner and easier to read. 
+
+```{r}
+guide_umap <- function(key.size = 5) {
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, alpha = 1, stroke = 0.25)))
+}
+```
+
+Next we define color palettes for our celltypes and our genes of interest. 
+
+```{r}
+palette_heatmap <- paletteer::paletteer_d("wesanderson::Zissou1")
+palette_timepoint <- paletteer::paletteer_d("ggsci::category20_d3")
+palette_cluster <- paletteer::paletteer_d("ggsci::default_igv")
+palette_lineage <- paletteer::paletteer_d("MetBrewer::Juarez")
+```
+
+# Data {#sec-data}
+
+## Preprocessed objects
+
+We start by importing the output from `Slingshot`. 
+
+```{r}
+#| message: false
+#| warning: false
+sling_res <- readRDS("../../data/zebrafish/sling_res.Rds")
+sling_curves <- slingCurves(sling_res, as.df = TRUE)
+sling_mst <- slingMST(sling_res, as.df = TRUE)
+sling_pt <- slingPseudotime(sling_res) %>%
+            as.data.frame() %>%
+            mutate(cell = rownames(.),
+                   across(contains("Lineage"), \(x) (x - min(x, na.rm = T)) / (max(x, na.rm = T) - min(x, na.rm = T))), 
+                   .before = 1) %>%
+            rowwise() %>%
+            mutate(PT_Overall = mean(c_across(contains("Lineage")), na.rm = TRUE)) %>%
+            ungroup()
+```
+
+
+We read in our processed `Seurat` object, and create some objects that we'll need to use `scLANE`, along with some tables we'll use throughout our various plots. 
+
+```{r}
+seu_fish <- readRDS("../../data/zebrafish/seu_fish.Rds")
+cell_offset <- createCellOffset(seu_fish)
+pt_df <- select(sling_pt, -c(PT_Overall, cell)) %>% 
+         as.data.frame() %>% 
+         magrittr::set_rownames(seu_fish$cell) %>% 
+         magrittr::set_colnames(c("PT_P", "PT_N"))
+embed_df <- data.frame(cell = seu_fish$cell, 
+                       cell_lineage = seu_fish$lineages, 
+                       cell_timepoint = seu_fish$timepoint, 
+                       cluster = seu_fish$seurat_clusters, 
+                       f1 = seu_fish@reductions$fdg@cell.embeddings[, 1], 
+                       f2 = seu_fish@reductions$fdg@cell.embeddings[, 2], 
+                       PT_P = sling_pt$Lineage1, 
+                       PT_N = sling_pt$Lineage2, 
+                       mean_PT = sling_pt$PT_Overall)
+```
+
+We read in the fitted models from `scLANE` that we generated earlier. We then produce a tidy table of DE statistics, and identify a set of trajectory DE genes. 
+
+```{r}
+scLANE_models <- readRDS("../../data/zebrafish/scLANE_models.Rds")
+scLANE_de_res <- getResultsDE(scLANE_models) %>% 
+                 mutate(Lineage_Name = if_else(Lineage == "A", 
+                                               "Prechordal Plate Lineage", 
+                                               "Notochord Lineage")) 
+dyn_genes <- filter(scLANE_de_res, Gene_Dynamic_Overall == 1) %>% 
+             distinct(Gene) %>% 
+             pull(Gene)
+```
+
+Lastly we read in the fitted models from `tradeSeq`. 
+
+```{r}
+ts_models <- readRDS("../../data/zebrafish/ts_models.Rds")
+ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
+                             arrange(desc(waldStat)) %>% 
+                             mutate(gene = rownames(.), 
+                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
+                             relocate(gene)
+dyn_genes_ts <- filter(ts_de_res, gene_dynamic_overall == 1) %>% 
+                distinct(gene) %>% 
+                pull(gene)
+```
+
+# Figure 4 {#sec-fig4}
+
+## A
+
+```{r}
+#| fig-width: 3
+#| fig-height: 3
+Fig_4A <- ggplot(embed_df, aes(x = f1, y = f2, color = cell_lineage)) + 
+          geom_point(size = 1.5, 
+                     alpha = 0.5, 
+                     stroke = 0) + 
+          scale_color_manual(values = palette_lineage) + 
+          labs(x = "FA 1", y = "FA 2") + 
+          theme_scLANE(base.size = 9, umap = TRUE) +
+          theme(legend.title = element_blank(), 
+                axis.text = element_blank(), 
+                axis.ticks = element_blank(), 
+                legend.box.margin = margin(0, -0.05, 0, -0.15, "in")) + 
+          guides(color = guide_legend(override.aes = list(size = 4, stroke = 0.25, alpha = 1)))
+Fig_4A
+```
+
+```{r}
+ggsave("Figure_4A.png",
+       plot = Fig_4A, 
+       device = "png", 
+       path = "../png/",
+       width = 3, 
+       height = 3, 
+       units = "in", 
+       dpi = 300)
+```
+
+## B 
+
+```{r}
+#| fig-width: 2.4
+#| fig-height: 3
+Fig_4B <- ggplot(embed_df, aes(x = f1, y = f2, color = cluster)) + 
+          geom_point(size = 1.5, 
+                     alpha = 0.5, 
+                     stroke = 0) + 
+          geom_path(data = sling_mst, mapping = aes(x = FR_1, y = FR_2, group = Lineage), 
+                    linewidth = 1, 
+                    color = "black") + 
+          geom_point(data = sling_mst, mapping = aes(x = FR_1, y = FR_2, fill = Cluster), 
+                    color = "black", 
+                    shape = 21, 
+                    size = 4, 
+                    stroke = 1, 
+                    show.legend = FALSE) + 
+          scale_color_manual(values = palette_cluster) + 
+          scale_fill_manual(values = palette_cluster) + 
+          labs(x = "FA 1", y = "FA 2") + 
+          theme_scLANE(base.size = 9, umap = TRUE) + 
+          theme(legend.title = element_blank(), 
+                axis.text = element_blank(), 
+                axis.ticks = element_blank()) + 
+          guide_umap(key.size = 4)
+Fig_4B
+```
+
+```{r}
+ggsave("Figure_4B.png",
+       plot = Fig_4B, 
+       device = "png", 
+       path = "../png/",
+       width = 2.4, 
+       height = 3, 
+       units = "in", 
+       dpi = 300)
+```
+
+## C
+
+```{r}
+#| fig-width: 2.4
+#| fig-height: 3
+Fig_4C <- tidyr::pivot_longer(embed_df, 
+                              starts_with("PT_"), 
+                              names_to = "lineage", 
+                              values_to = "pseudotime") %>% 
+          mutate(lineage_label = if_else(lineage == "PT_P", "Prechordal Plate Lineage", "Notochord Lineage")) %>% 
+          ggplot(aes(x = f1, y = f2, color = pseudotime)) + 
+          facet_wrap(~lineage_label, nrow = 2) + 
+          geom_point(size = 1.5, 
+                     alpha = 0.5, 
+                     stroke = 0) + 
+          labs(x = "FA 1", 
+               y = "FA 2", 
+               color = "Pseudotime") + 
+          scale_color_gradientn(colors = palette_heatmap, labels = scales::label_number(accuracy = .01)) + 
+          theme_scLANE(base.size = 9, umap = TRUE) + 
+          theme(axis.text = element_blank(), 
+                axis.ticks = element_blank(), 
+                legend.position = "bottom") + 
+          guides(color = guide_colorbar(title.vjust = 0.25, 
+                                        label.position = "top", 
+                                        barheight = unit(0.15, "in")))
+Fig_4C
+```
+
+```{r}
+ggsave("Figure_4C.png",
+       plot = Fig_4C, 
+       device = "png", 
+       path = "../png/",
+       width = 2.4, 
+       height = 3, 
+       units = "in", 
+       dpi = 300)
+```
+
+## D
+
+```{r}
+notochord_tde_genes <- filter(scLANE_de_res,
+                              Lineage_Name == "Notochord Lineage", 
+                              P_Val_Adj < 0.01) %>% 
+                       distinct(Gene) %>% 
+                       pull(Gene)
+prechordal_tde_genes <- filter(scLANE_de_res,
+                               Lineage_Name == "Prechordal Plate Lineage", 
+                               P_Val_Adj < 0.01) %>% 
+                        distinct(Gene) %>% 
+                        pull(Gene)
+notochord_knots <- purrr::imap(scLANE_models[notochord_tde_genes], \(x, y) {
+  data.frame(Lineage_Name = "Notochord Lineage", 
+             Gene = y, 
+             Knot = x$Lineage_B$MARGE_Slope_Data$Breakpoint)
+})
+prechordal_knots <- purrr::imap(scLANE_models[prechordal_tde_genes], \(x, y) {
+  data.frame(Lineage_Name = "Prechordal Plate Lineage", 
+             Gene = y, 
+             Knot = x$Lineage_A$MARGE_Slope_Data$Breakpoint)
+})
+knot_df <- purrr::reduce(notochord_knots, rbind) %>% 
+           bind_rows(purrr::reduce(prechordal_knots, rbind))
+```
+
+```{r}
+#| fig-width: 2.5
+#| fig-height: 2.3
+#| message: false
+#| warning: false
+Fig_4D <- ggplot(knot_df, aes(x = Knot, color = Lineage_Name, fill = Lineage_Name)) + 
+          facet_wrap(~Lineage_Name, ncol = 1) + 
+          geom_histogram(aes(y = after_stat(density)), 
+                         color = "black", 
+                         fill = "white", 
+                         linewidth = 0.5) + 
+          geom_density(alpha = 0.5, 
+                       linewidth = 0.75, 
+                       show.legend = FALSE) + 
+          labs(x = "Knot Location", y = "Density") + 
+          scale_x_continuous(labels = scales::label_number(accuracy = .01)) + 
+          scale_color_manual(values = palette_lineage[2:3]) + 
+          scale_fill_manual(values = palette_lineage[2:3]) + 
+          theme_scLANE(base.size = 9) + 
+          theme(axis.text.y = element_blank(), 
+                axis.ticks.y = element_blank())
+Fig_4D
+```
+
+```{r}
+ggsave("Figure_4D.png",
+       plot = Fig_4D, 
+       device = "png", 
+       path = "../png/",
+       width = 2.5, 
+       height = 2.3, 
+       units = "in", 
+       dpi = 300)
+```
+
+## E
+
+```{r}
+#| fig-width: 4.8
+#| fig-height: 2.3
+Fig_4E <- getFittedValues(scLANE_models, 
+                          genes = c("GSC", "FOXA3", "KLF17", "FRZB"), 
+                          pt = pt_df, 
+                          expr.mat = seu_fish, 
+                          size.factor.offset = cell_offset) %>% 
+          mutate(lineage_label = if_else(lineage == "A", "Prechordal Plate", "Notochord"), 
+                 gene = tolower(gene)) %>% 
+          ggplot(aes(x = pt, y = rna_log1p)) + 
+          ggh4x::facet_grid2(lineage_label ~ gene, 
+                             scales = "free_y", 
+                             strip = ggh4x::strip_themed(clip = "off",
+                                                         text_x = list(element_text(face = "italic")), 
+                                                         text_y = list(element_text(size = 7)), 
+                                                         background_x = list(element_rect(linewidth = 0.75)))) + 
+          geom_point(size = 0.8, 
+                     stroke = 0, 
+                     alpha = 0.5) + 
+          geom_ribbon(aes(ymin = scLANE_ci_ll_log1p, ymax = scLANE_ci_ul_log1p, fill = lineage_label),  
+                      alpha = 0.5, 
+                      linewidth = 0, 
+                      show.legend = FALSE) + 
+          geom_line(aes(y = scLANE_pred_log1p, color = lineage_label), 
+                    linewidth = 0.5, 
+                    show.legend = FALSE) + 
+          scale_color_manual(values = palette_lineage[2:3]) + 
+          scale_fill_manual(values = palette_lineage[2:3]) + 
+          labs(x = "Pseudotime", y = "Normalized Expression") + 
+          theme_scLANE(base.size = 9)
+Fig_4E
+```
+
+```{r}
+ggsave("Figure_4E.png",
+       plot = Fig_4E, 
+       device = "png", 
+       path = "../png/",
+       width = 4.8, 
+       height = 2.3, 
+       units = "in", 
+       dpi = 300)
+```
+
+## F
+
+```{r}
+#| fig-width: 7.3
+#| fig-height: 3
+Fig_4F <- getFittedValues(scLANE_models, 
+                          genes = c("ZGC:174153", "SLC39A10", "PLP2", "HFE2", "SMAD2", "DEPDC1A"), 
+                          pt = pt_df, 
+                          expr.mat = seu_fish, 
+                          size.factor.offset = cell_offset) %>% 
+          mutate(lineage_label = if_else(lineage == "A", "Prechordal Plate", "Notochord"), 
+                 gene = factor(gene, levels = c("ZGC:174153", "SLC39A10", "PLP2", "HFE2", "SMAD2", "DEPDC1A")), 
+                 gene_label = factor(tolower(gene), levels = tolower(levels(gene)))) %>% 
+          ggplot(aes(x = pt, y = rna_log1p)) + 
+          ggh4x::facet_grid2(lineage_label ~ gene_label, 
+                             strip = ggh4x::strip_themed(clip = "off",
+                                                         text_x = list(element_text(face = "italic")), 
+                                                         background_x = list(element_rect(linewidth = 0.75)))) + 
+          geom_point(size = 0.8, 
+                     stroke = 0, 
+                     alpha = 0.5) + 
+          geom_ribbon(aes(ymin = scLANE_ci_ll_log1p, ymax = scLANE_ci_ul_log1p, fill = lineage_label),  
+                      alpha = 0.5, 
+                      linewidth = 0, 
+                      show.legend = FALSE) + 
+          geom_line(aes(y = scLANE_pred_log1p, color = lineage_label), 
+                    linewidth = 0.5, 
+                    show.legend = FALSE) + 
+          scale_x_continuous(labels = scales::label_number(accuracy = .01)) + 
+          scale_y_continuous(labels = scales::label_number(accuracy = 1), n.breaks = 4) + 
+          scale_color_manual(values = palette_lineage[2:3]) + 
+          scale_fill_manual(values = palette_lineage[2:3]) + 
+          labs(x = "Pseudotime", y = "Normalized mRNA") + 
+          theme_scLANE(base.size = 9)
+Fig_4F
+```
+
+```{r}
+ggsave("Figure_4F.png",
+       plot = Fig_4F, 
+       device = "png", 
+       path = "../png/",
+       width = 7.3, 
+       height = 3, 
+       units = "in", 
+       dpi = 300)
+```
+
+# Magic numbers {#sec-nums}
+
+```{r}
+round(filter(knot_df, Lineage_Name == "Prechordal Plate Lineage", Knot < 0.275, Knot > 0.15) %>% summarise(mu = mean(Knot)), 3)
+round(filter(knot_df, Lineage_Name == "Notochord Lineage", Knot < 0.35, Knot > 0.2) %>% summarise(mu = mean(Knot)), 3)
+```
+
+```{r}
+round(mean(c(scLANE_models$FOXA3$Lineage_A$Gene_Dynamics$Breakpoint2, 
+             scLANE_models$FRZB$Lineage_A$Gene_Dynamics$Breakpoint2, 
+             scLANE_models$GSC$Lineage_A$Gene_Dynamics$Breakpoint2) - 
+           c(scLANE_models$FOXA3$Lineage_B$Gene_Dynamics$Breakpoint1, 
+             scLANE_models$FRZB$Lineage_B$Gene_Dynamics$Breakpoint2, 
+             scLANE_models$GSC$Lineage_B$Gene_Dynamics$Breakpoint2)), 3)
+```
+
+```{r}
+round(scLANE_models$KLF17$Lineage_B$Gene_Dynamics$Slope.Segment2, 3)
+round(scLANE_models$KLF17$Lineage_A$Gene_Dynamics$Slope.Segment2, 3)
+```
+```{r}
+length(notochord_tde_genes)
+length(prechordal_tde_genes)
+length(prechordal_tde_genes) - length(notochord_tde_genes)
+length(dyn_genes)
+length(dyn_genes_ts)
+length(intersect(dyn_genes, dyn_genes_ts))
+length(dyn_genes[!dyn_genes %in% dyn_genes_ts])
+length(dyn_genes_ts[!dyn_genes_ts %in% dyn_genes])
+```
+
+# Session info {#sec-SI}
+
+```{r}
+sessioninfo::session_info()
+```

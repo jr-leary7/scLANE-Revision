@@ -1,0 +1,691 @@
+---
+title: "Figure 3"
+subtitle: "Bacher Group"
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(comment = NA)
+reticulate::use_condaenv("../../../../py_envs/scLANE_env2/", required = TRUE)
+set.seed(312)  # lucky seed
+```
+
+# Libraries {#sec-libs}
+
+We begin by loading the prerequisite libraries in both R & Python. 
+
+## R
+
+```{r}
+#| message: false
+#| warning: false
+library(dplyr)       # data manipulation
+library(Seurat)      # scRNA-seq tools
+library(scLANE)      # trajectory DE
+library(ggplot2)     # pretty plots
+library(tradeSeq)    # more trajectory DE
+library(patchwork)   # plot alignment
+library(reticulate)  # Python interface
+```
+
+## Python
+
+```{python}
+#| message: false
+#| warning: false
+import warnings                                                                 # filter out warnings
+import numpy as np                                                              # linear algebra tools
+import scanpy as sc                                                             # scRNA-seq tools
+import pandas as pd                                                             # DataFrames
+import anndata as ad                                                            # scRNA-seq data structures
+import scvelo as scv                                                            # RNA velocity
+import cellrank as cr                                                           # cell fate estimation
+import matplotlib.pyplot as plt                                                 # pretty plots
+from matplotlib import gridspec                                                 # subplot alignment
+from cellrank.kernels import PseudotimeKernel, CytoTRACEKernel, VelocityKernel  # CellRank kernels
+```
+
+Here we set a few global variables to reduce the amount of printed output caused by our Python code. 
+
+```{python}
+warnings.simplefilter('ignore', category=UserWarning)
+sc.settings.verbosity = 0
+scv.settings.verbosity = 0
+cr.settings.verbosity = 0
+```
+
+# Visualization tools {#sec-viz-tools}
+
+First we define a `ggplot` guide that will make our legends cleaner and easier to read. 
+
+```{r}
+guide_umap <- function(key.size = 5) {
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, alpha = 1)))
+}
+```
+
+Next we define color palettes for our celltypes and our genes of interest. 
+
+```{r}
+palette_celltype <- c("#A82203FF", "#208CC0FF", "#F1AF3AFF", "#CF5E4EFF", "#00991AFF", "#003967FF", "#6BD76BFF", "#660099FF")
+names(palette_celltype) <- c("Ductal", "Ngn3 low EP", "Ngn3 high EP", "Pre-endocrine", "Beta", "Alpha", "Delta", "Epsilon")
+palette_genes <- paletteer::paletteer_d("ggsci::default_igv")[-5][1:10]
+names(palette_genes) <- c("Sox9", "Neurog3", "Nkx2-2", "Rfx6", "Neurod1", "Arx", "Pax6", "Pax4", "Pdx1", "Ins1")
+palette_heatmap <- paletteer::paletteer_d("wesanderson::Zissou1")
+```
+
+Lastly we define a theme for `matplotlib`. 
+
+```{python}
+base_size = 9
+plt.rcParams.update({
+    # font
+    'font.size': base_size, 
+    'font.weight': 'normal',
+    # figure
+    'figure.dpi': 320, 
+    'figure.edgecolor': 'white', 
+    'figure.facecolor': 'white', 
+    'figure.figsize': (6, 4), 
+    'figure.constrained_layout.use': True,
+    # axes
+    'axes.edgecolor': 'black',
+    'axes.grid': False,
+    'axes.labelpad': 2.75,
+    'axes.labelsize': base_size * 0.8,
+    'axes.linewidth': 1.5,
+    'axes.spines.right': False,
+    'axes.spines.top': False,
+    'axes.titlelocation': 'left',
+    'axes.titlepad': 11,
+    'axes.titlesize': base_size,
+    'axes.titleweight': 'normal',
+    'axes.xmargin': 0.1, 
+    'axes.ymargin': 0.1, 
+    # legend
+    'legend.borderaxespad': 1,
+    'legend.borderpad': 0.5,
+    'legend.columnspacing': 2,
+    'legend.fontsize': base_size * 0.8,
+    'legend.frameon': False,
+    'legend.handleheight': 1,
+    'legend.handlelength': 1.2,
+    'legend.labelspacing': 1,
+    'legend.title_fontsize': base_size, 
+    'legend.markerscale': 1.5
+})
+```
+
+# Data {#sec-data}
+
+## Preprocessed objects
+
+First we read in our processed `Seurat` object, and create some objects that we'll need to use `scLANE`, along with some tables we'll use throughout our various plots. 
+
+```{r}
+seu_panc <- readRDS("../../data/pancreas_E15.5/seu_panc.Rds")
+cell_offset <- createCellOffset(seu_panc)
+pt_df <- data.frame(LT = seu_panc$latent_time)
+mean_lt <- with_groups(seu_panc@meta.data, 
+                       celltype, 
+                       summarise, 
+                       mu = mean(latent_time)) %>% 
+           arrange(mu)
+embed_df <- data.frame(umap1 = seu_panc@reductions$umap@cell.embeddings[, 1], 
+                       umap2 = seu_panc@reductions$umap@cell.embeddings[, 2], 
+                       leiden = seu_panc$leiden, 
+                       latent_time = seu_panc$latent_time, 
+                       celltype = seu_panc$celltype, 
+                       velocity_conf = seu_panc$velocity_confidence, 
+                       velocity_length = seu_panc$velocity_length) %>% 
+            mutate(celltype = factor(celltype, levels = mean_lt$celltype))
+```
+
+Next, we load the processed `AnnData` object which contains our RNA velocity results. 
+
+```{python}
+ad_panc = ad.read_h5ad('../../data/pancreas_E15.5/ad_panc.h5ad')
+```
+
+## `scLANE` output
+
+We read in the fitted models from `scLANE` that we generated earlier. We then produce a tidy table of DE statistics, and identify a set of trajectory DE genes. 
+
+```{r}
+scLANE_models <- readRDS("../../data/pancreas_E15.5/scLANE_models.Rds")
+scLANE_de_res <- getResultsDE(scLANE_models)
+dyn_genes <- filter(scLANE_de_res, Gene_Dynamic_Overall == 1) %>% 
+             pull(Gene)
+```
+
+## `tradeSeq` output
+
+```{r}
+ts_models <- readRDS("../../data/pancreas_E15.5/ts_models.Rds")
+ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
+                             arrange(desc(waldStat)) %>% 
+                             mutate(gene = rownames(.), 
+                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
+                             relocate(gene)
+dyn_genes_ts <- filter(ts_de_res, gene_dynamic_overall == 1) %>% 
+                pull(gene)
+```
+
+# Processing {#sec-process}
+
+## Downstream `scLANE` analysis
+
+We continue by generating a matrix of smoothed gene dynamics for our trajectory DE genes, embedding the gene-level dynamics in PCA and UMAP space, performing gene-level Leiden clustering, and generating a $k = 20$ NN graph of the relationships between genes. 
+
+```{r}
+#| message: false
+#| warning: false
+smoothed_counts <- smoothedCountsMatrix(scLANE_models, 
+                                        pt = pt_df, 
+                                        genes = dyn_genes, 
+                                        size.factor.offset = cell_offset,
+                                        log1p.norm = TRUE)
+gene_embed <- embedGenes(smoothed_counts$Lineage_A, resolution.param = 0.5) %>% 
+              mutate(leiden = as.factor(as.integer(leiden)))
+set.seed(312)
+smoothed_counts_knn <- bluster::makeKNNGraph(t(smoothed_counts$Lineage_A),
+                                             k = 20,
+                                             BNPARAM = BiocNeighbors::AnnoyParam(distance = "Cosine"), 
+                                             BPPARAM = BiocParallel::SnowParam(workers = 2L))
+```
+
+Lastly, we perform pathway enrichment analysis on each cluster of genes independently. After identifying pathways that are specific to each cluster, we add a per-cluster module score to our `Seurat` object - this will help us annotate and visualize the gene clusters. 
+
+```{r}
+gene_clust_list <- purrr::map(unique(gene_embed$leiden), \(x) { 
+  filter(gene_embed, leiden == x) %>% 
+  inner_join(scLANE_de_res, by = c("gene" = "Gene")) %>% 
+  arrange(desc(Test_Stat)) %>% 
+  pull(gene)
+}) 
+names(gene_clust_list) <- paste0("Leiden_", unique(gene_embed$leiden))
+enrich_res <- gprofiler2::gost(gene_clust_list, 
+                               organism = "mmusculus", 
+                               ordered_query = TRUE, 
+                               multi_query = FALSE, 
+                               sources = "GO:BP", 
+                               significant = TRUE)
+spec_pathways <- purrr::map(unique(enrich_res$result$query), \(x) {
+  filter(enrich_res$result, 
+         query == x, 
+         !term_id %in% (filter(enrich_res$result, query != x) %>% pull(term_id)))
+}) 
+spec_pathways <- purrr::reduce(spec_pathways, rbind)
+seu_panc <- AddModuleScore(seu_panc, 
+                           features = gene_clust_list, 
+                           assay = "spliced", 
+                           name = "Leiden_", 
+                           seed = 312)
+```
+
+## `CellRank` analysis
+
+### CytoTRACE kernel
+
+We start our analysis by generating a CytoTRACE kernel and computing a cell-cell transition probability matrix. 
+
+```{python}
+#| results: hide
+ctk = CytoTRACEKernel(ad_panc).compute_cytotrace()
+ctk.compute_transition_matrix(threshold_scheme='soft', show_progress_bar=False)
+```
+
+### Velocity kernel
+
+Moving on, we create another kernel based on the RNA velocity estimates, and compute its transition probability matrix while incorporating the velocity uncertainty estimates from `scVelo`. 
+
+```{python}
+#| results: hide
+vk = cr.kernels.VelocityKernel(ad_panc)
+vk.compute_transition_matrix(
+    model='monte_carlo', 
+    similarity='cosine', 
+    seed=312, 
+    show_progress_bar=False
+)
+```
+
+### Pseudotime kernel
+
+Our third and final kernel is based on our per-cell estimates of diffusion pseudotime. 
+
+```{python}
+#| results: hide
+pk = PseudotimeKernel(ad_panc, time_key='dpt_pseudotime')
+pk.compute_transition_matrix(threshold_scheme='soft', show_progress_bar=False)
+```
+
+### Combined kernel
+
+We combine the kernels, placing the highest weight on the velocity kernel. 
+
+```{python}
+ck = 0.25 * ctk + 0.5 * vk + 0.25 * pk
+```
+
+# Figure 3 {#sec-fig3}
+
+## A
+
+```{python}
+#| fig-width: 2
+#| fig-height: 2.5
+fig = plt.figure(figsize=(2, 2.5), dpi=300)
+gs = gridspec.GridSpec(nrows=1, ncols=1, bottom=0.075, left=0.05)
+ax = fig.add_subplot(gs[0, 0])
+ck.plot_projection(
+    basis='umap', 
+    recompute=True, 
+    linewidth=0.75, 
+    color='celltype', 
+    size=20, 
+    alpha=0.5, 
+    arrow_size=0.8, 
+    legend_loc='right margin', 
+    title='', 
+    frameon=True, 
+    dpi=300, 
+    ax=ax, 
+    show=False, 
+    xlabel='', 
+    ylabel=''
+)
+ax.set_xlabel('UMAP 1')
+ax.set_ylabel('UMAP 2')
+ax.set_xlim(ad_panc.obsm['X_umap'][:, 0].min() - 1, ad_panc.obsm['X_umap'][:, 0].max() + 1)
+ax.set_ylim(ad_panc.obsm['X_umap'][:, 1].min() - 1, ad_panc.obsm['X_umap'][:, 1].max() + 1)
+fig.savefig('../png/Figure_3A.png', bbox_inches='tight')
+plt.show()
+```
+
+## B 
+
+```{r}
+#| fig-width: 2.25
+#| fig-height: 2.5
+Fig_3B <- data.frame(celltype = factor(seu_panc$celltype, levels = mean_lt$celltype), 
+                     latent_time = seu_panc$latent_time) %>% 
+          ggplot(aes(x = celltype, y = latent_time, color = celltype)) + 
+          ggbeeswarm::geom_quasirandom(alpha = 0.25, 
+                                       stroke = 0, 
+                                       size = 0.75, 
+                                       show.legend = FALSE) + 
+          stat_summary(show.legend = FALSE, 
+                       fun = "mean", 
+                       color = "black", 
+                       geom = "point", 
+                       size = 1) + 
+          scale_color_manual(values = palette_celltype) + 
+          labs(y = "Latent Time") + 
+          theme_scLANE(base.size = 9) +
+          theme(axis.title.x = element_blank(), 
+                axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+Fig_3B
+```
+
+```{r}
+ggsave("Figure_3B.png",
+       plot = Fig_3B, 
+       device = "png", 
+       path = "../png/",
+       width = 2.25, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 300)
+```
+
+## C
+
+```{r}
+#| fig-width: 2.7
+#| fig-height: 2.5
+Fig_3C <- getFittedValues(scLANE_models, 
+                          genes = c("Sox9", "Neurog3"), 
+                          pt = pt_df, 
+                          expr.mat = seu_panc, 
+                          size.factor.offset = cell_offset) %>% 
+          ggplot(aes(x = pt, y = rna_log1p)) + 
+          geom_ribbon(aes(ymin = scLANE_ci_ll_log1p, ymax = scLANE_ci_ul_log1p, fill = gene), 
+                      linewidth = 0, 
+                      alpha = 0.4, 
+                      show.legend = FALSE) + 
+          geom_line(aes(y = scLANE_pred_log1p, color = gene), 
+                    linewidth = 0.6, 
+                    alpha = 0.75) + 
+          scale_x_continuous(labels = scales::label_number(accuracy = 0.01)) + 
+          scale_color_manual(values = palette_genes) + 
+          scale_fill_manual(values = palette_genes) + 
+          labs(x = "Latent Time", y = "Normalized Expression") + 
+          theme_scLANE(base.size = 9) +
+          theme(legend.text = element_text(face = "italic"), 
+                legend.title = element_blank()) + 
+          guides(color = guide_legend(override.aes = list(alpha = 1, linewidth = 2)))
+Fig_3C
+```
+
+```{r}
+ggsave("Figure_3C.png",
+       plot = Fig_3C, 
+       device = "png", 
+       path = "../png/",
+       width = 2.7, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 300)
+```
+
+## D
+
+```{r}
+#| fig-width: 3.6
+#| fig-height: 2.75
+alpha_genes <- c("Rfx6", "Arx", "Pax6")
+p1 <- select(seu_panc@meta.data, 
+             celltype, 
+             latent_time) %>% 
+      filter(celltype == "Alpha") %>% 
+      ggplot(aes(x = latent_time, color = celltype, fill = celltype)) + 
+      geom_density(alpha = 0.5, show.legend = FALSE) + 
+      scale_x_continuous(limits = c(0, 1)) + 
+      scale_color_manual(values = palette_celltype) + 
+      scale_fill_manual(values = palette_celltype) + 
+      labs(y = "Density", x = "Latent Time") + 
+      theme_scLANE(base.size = 9) +
+      theme(axis.text.y = element_blank(), 
+            axis.ticks.y = element_blank())
+p2 <- getFittedValues(scLANE_models, 
+                      genes = alpha_genes, 
+                      pt = pt_df, 
+                      expr.mat = seu_panc, 
+                      size.factor.offset = cell_offset) %>% 
+      ggplot(aes(x = pt, y = rna_log1p)) + 
+      geom_ribbon(aes(ymin = scLANE_ci_ll_log1p, ymax = scLANE_ci_ul_log1p, fill = gene), 
+                  linewidth = 0, 
+                  alpha = 0.4, 
+                  show.legend = FALSE) + 
+      geom_line(aes(y = scLANE_pred_log1p, color = gene), 
+                linewidth = 0.6, 
+                alpha = 0.75) + 
+      scale_x_continuous(labels = scales::label_number(accuracy = 0.01)) + 
+      scale_color_manual(values = palette_genes) + 
+      scale_fill_manual(values = palette_genes) + 
+      labs(y = "Normalized Expression", x = "Latent Time") + 
+      theme_scLANE(base.size = 9) +
+      theme(strip.text.x = element_text(face = "italic"), 
+            axis.title.x = element_blank(), 
+            axis.text.x = element_blank(), 
+            legend.title = element_blank(), 
+            legend.text = element_text(face = "italic")) + 
+      guides(color = guide_legend(override.aes = list(alpha = 1, linewidth = 2)))
+Fig_3D <- (p2 / p1) + 
+          plot_layout(heights = c(1, 0.2), guides = "collect", axes = "collect")
+Fig_3D
+```
+
+```{r}
+ggsave("Figure_3D.png",
+       plot = Fig_3D, 
+       device = "png", 
+       path = "../png/",
+       width = 3.6, 
+       height = 2.75, 
+       units = "in", 
+       dpi = 300)
+```
+
+## E
+
+```{r}
+#| fig-width: 3.6
+#| fig-height: 2.75
+#| message: false
+#| warning: false
+beta_genes <- c("Neurod1", "Nkx2-2", "Pax4", "Pdx1")
+p3 <- select(seu_panc@meta.data, 
+             celltype, 
+             latent_time) %>% 
+      filter(celltype == "Beta") %>% 
+      ggplot(aes(x = latent_time, color = celltype, fill = celltype)) + 
+      geom_density(alpha = 0.5, show.legend = FALSE) + 
+      scale_x_continuous(limits = c(0, 1)) + 
+      scale_color_manual(values = palette_celltype) + 
+      scale_fill_manual(values = palette_celltype) + 
+      labs(y = "Density", x = "Latent Time") + 
+      theme_scLANE(base.size = 9) + 
+      theme(axis.text.y = element_blank(), 
+            axis.ticks.y = element_blank())
+p4 <- getFittedValues(scLANE_models, 
+                      genes = beta_genes, 
+                      pt = pt_df, 
+                      expr.mat = seu_panc, 
+                      size.factor.offset = cell_offset) %>% 
+      ggplot(aes(x = pt, y = rna_log1p)) + 
+      geom_ribbon(aes(ymin = scLANE_ci_ll_log1p, ymax = scLANE_ci_ul_log1p, fill = gene), 
+                  linewidth = 0, 
+                  alpha = 0.4, 
+                  show.legend = FALSE) + 
+      geom_line(aes(y = scLANE_pred_log1p, color = gene), 
+                linewidth = 0.6, 
+                alpha = 0.75) + 
+      scale_x_continuous(labels = scales::label_number(accuracy = 0.01)) + 
+      scale_color_manual(values = palette_genes) + 
+      scale_fill_manual(values = palette_genes) + 
+      labs(y = "Normalized Expression") + 
+      theme_scLANE(base.size = 9) +
+      theme(strip.text.x = element_text(face = "italic"), 
+            axis.title.x = element_blank(), 
+            axis.text.x = element_blank(), 
+            legend.title = element_blank(), 
+            legend.text = element_text(face = "italic")) + 
+      guides(color = guide_legend(override.aes = list(alpha = 1, linewidth = 2)))
+Fig_3E <- (p4 / p3) + plot_layout(heights = c(1, 0.2), guides = "collect")
+Fig_3E
+```
+
+```{r}
+ggsave("Figure_3E.png",
+       plot = Fig_3E, 
+       device = "png", 
+       path = "../png/",
+       width = 3.6, 
+       height = 2.75, 
+       units = "in", 
+       dpi = 300)
+```
+
+## F
+
+```{r}
+#| fig-width: 3.65
+#| fig-height: 4
+neurog3_nns <- igraph::neighbors(smoothed_counts_knn, v = which(dyn_genes == "Neurog3"))
+neurog3_genes <- c("Neurog3", dyn_genes[neurog3_nns[1:5]])
+Fig_3F <- getFittedValues(scLANE_models, 
+                          genes = neurog3_genes, 
+                          pt = pt_df, 
+                          expr.mat = seu_panc, 
+                          size.factor.offset = cell_offset, 
+                          cell.meta.data = data.frame(celltype = factor(seu_panc$celltype, levels = mean_lt$celltype))) %>% 
+          ggplot(aes(x = pt, y = rna_log1p)) + 
+          facet_wrap(~gene, 
+                     ncol = 2, 
+                     nrow = 3, 
+                     scales = "free_y") + 
+          geom_point(aes(color = celltype), 
+                     size = 0.75, 
+                     alpha = 0.5, 
+                     stroke = 0, 
+                     show.legend = FALSE) + 
+          geom_ribbon(aes(ymin = scLANE_ci_ll_log1p, ymax = scLANE_ci_ul_log1p), 
+                      linewidth = 0, 
+                      fill = "grey70", 
+                      alpha = 0.9) + 
+          geom_line(aes(y = scLANE_pred_log1p), 
+                    color = "black", 
+                    linewidth = 0.75) + 
+          scale_x_continuous(labels = scales::label_number(accuracy = 0.01)) + 
+          scale_color_manual(values = palette_celltype) + 
+          labs(x = "Latent Time", y = "Normalized Expression") + 
+          theme_scLANE(base.size = 9) +
+          theme(strip.text.x = element_text(face = "italic")) + 
+          guide_umap()
+Fig_3F
+```
+
+```{r}
+ggsave("Figure_3F.png",
+       plot = Fig_3F, 
+       device = "png", 
+       path = "../png/",
+       width = 3.65, 
+       height = 4, 
+       units = "in", 
+       dpi = 300)
+```
+
+## G
+
+```{r}
+#| fig-width: 3.65
+#| fig-height: 4
+Fig_3G <- select(seu_panc@meta.data, 
+                 starts_with("Leiden_")) %>% 
+          bind_cols(embed_df) %>% 
+          select(umap1, umap2, starts_with("Leiden_")) %>% 
+          mutate(cell = rownames(.), 
+                 .before = 1) %>% 
+          tidyr::pivot_longer(!c(cell, contains("umap")), 
+                              names_to = "gene_program", 
+                              values_to = "score") %>% 
+          with_groups(gene_program, 
+                      mutate, 
+                      score = (score - min(score)) / (max(score) - min(score))) %>% 
+          mutate(gene_program_label = case_when(gene_program == "Leiden_1" ~ "Cell cycle" , 
+                                                gene_program == "Leiden_2" ~ "Cell localization" , 
+                                                gene_program == "Leiden_3" ~ "Peptide secretion", 
+                                                gene_program == "Leiden_4" ~ "Endocrine differentiation", 
+                                                gene_program == "Leiden_5" ~ "Ductal housekeeping", 
+                                                gene_program == "Leiden_6" ~ "Ductal differentiation", 
+                                                TRUE ~ NA_character_)) %>% 
+          arrange(score) %>% 
+          ggplot(aes(x = umap1, y = umap2, color = score)) + 
+          facet_wrap(~gene_program_label, ncol = 2) + 
+          geom_point(size = 0.75, alpha = 0.5, stroke = 0) + 
+          scale_color_gradientn(colors = palette_heatmap) + 
+          labs(x = "UMAP 1", 
+               y = "UMAP 2",
+               color = "Score") + 
+          theme_scLANE(base.size = 9, umap = TRUE) +
+          guides(color = guide_colorbar(barheight = unit(0.75, "in"), barwidth = unit(0.15, "in")))
+Fig_3G
+```
+
+```{r}
+ggsave("Figure_3G.png",
+       plot = Fig_3G, 
+       device = "png", 
+       path = "../png/",
+       width = 3.65, 
+       height = 4, 
+       units = "in", 
+       dpi = 300)
+```
+
+# Magic numbers {#sec-nums}
+
+```{r}
+round(scLANE_models$Neurog3$Lineage_A$Gene_Dynamics$Breakpoint2, 3)
+round(scLANE_models$Neurog3$Lineage_A$Gene_Dynamics$Slope.Segment3, 3)
+```
+
+```{r}
+round(scLANE_models$Arx$Lineage_A$Gene_Dynamics$Breakpoint2, 3)
+round(scLANE_models$Arx$Lineage_A$Gene_Dynamics$Slope.Segment3, 3)
+```
+
+```{r}
+filter(seu_panc@meta.data, 
+       celltype == "Beta") %>% 
+  summarise(mu = round(mean(latent_time), 3))
+```
+
+```{r}
+round(scLANE_models$`Nkx2-2`$Lineage_A$Gene_Dynamics$Breakpoint2, 3)
+round(scLANE_models$Neurod1$Lineage_A$Gene_Dynamics$Breakpoint2, 3)
+```
+
+```{r}
+round(scLANE_models$Pdx1$Lineage_A$Gene_Dynamics$Breakpoint, 3)
+round(scLANE_models$Pdx1$Lineage_A$Gene_Dynamics$Slope.Segment1, 3)
+round(scLANE_models$Pdx1$Lineage_A$Gene_Dynamics$Slope.Segment2, 3)
+```
+
+```{r}
+round(scLANE_models$Btbd17$Lineage_A$Gene_Dynamics$Breakpoint, 3)
+round(scLANE_models$Gadd45a$Lineage_A$Gene_Dynamics$Breakpoint, 3)
+round(scLANE_models$Cbfa2t3$Lineage_A$Gene_Dynamics$Breakpoint, 3)
+round(scLANE_models$Cdc14b$Lineage_A$Gene_Dynamics$Breakpoint, 3)
+round(scLANE_models$Grasp$Lineage_A$Gene_Dynamics$Breakpoint, 3)
+round(mean(c(scLANE_models$Btbd17$Lineage_A$Gene_Dynamics$Breakpoint, 
+             scLANE_models$Gadd45a$Lineage_A$Gene_Dynamics$Breakpoint,
+             scLANE_models$Cbfa2t3$Lineage_A$Gene_Dynamics$Breakpoint,
+             scLANE_models$Cdc14b$Lineage_A$Gene_Dynamics$Breakpoint,
+             scLANE_models$Grasp$Lineage_A$Gene_Dynamics$Breakpoint)), 3)
+mean(c(scLANE_models$Hes6$Lineage_A$Gene_Dynamics$Slope.Segment2,
+       scLANE_models$Gadd45a$Lineage_A$Gene_Dynamics$Slope.Segment1,
+       scLANE_models$Cbfa2t3$Lineage_A$Gene_Dynamics$Slope.Segment1,
+       scLANE_models$Cdc14b$Lineage_A$Gene_Dynamics$Slope.Segment1,
+       scLANE_models$Grasp$Lineage_A$Gene_Dynamics$Slope.Segment1))
+```
+
+```{r}
+length(dyn_genes)
+length(dyn_genes_ts)
+length(intersect(dyn_genes, dyn_genes_ts))
+length(dyn_genes[!dyn_genes %in% dyn_genes_ts])
+length(dyn_genes_ts[!dyn_genes_ts %in% dyn_genes])
+```
+
+# Session info {#sec-SI}
+
+```{r}
+sessioninfo::session_info()
+```
