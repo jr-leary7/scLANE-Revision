@@ -491,13 +491,17 @@ We'll perform several modes of analysis, namely RNA velocity analysis with `scVe
 
 ## RNA velocity estimation {#sec-velocity}
 
-We run the dynamic velocity model, estimate a velocity graph, and embed the velocity vectors in UMAP space. 
+We run the dynamic velocity model, estimate a velocity graph, and embed the velocity vectors in UMAP space. We'll also record the runtime in order to compare it with that of `scLANE`. 
+
+```{r}
+velo_start <- Sys.time()
+```
 
 ```{python}
 #| message: false
 #| warning: false
 #| results: hide
-scv.tl.recover_dynamics(ad_panc)
+scv.tl.recover_dynamics(ad_panc, n_jobs=8)
 scv.tl.velocity(
     ad_panc, 
     mode='dynamical', 
@@ -507,7 +511,8 @@ scv.tl.velocity(
 scv.tl.velocity_graph(
   ad_panc, 
   compute_uncertainties=True, 
-  n_neighbors=20
+  n_neighbors=20, 
+  n_jobs=8
 )
 scv.tl.velocity_embedding(ad_panc, basis='umap')
 ```
@@ -520,6 +525,14 @@ We then estimate the confidence of the velocities along with a gene-shared laten
 #| results: hide
 scv.tl.velocity_confidence(ad_panc)
 scv.tl.latent_time(ad_panc)
+```
+
+The total runtime was:
+
+```{r}
+velo_end <- Sys.time()
+velo_diff <- velo_end - velo_start
+velo_diff
 ```
 
 The latent time representation seems to capture well the progression from endocrine progenitor cells to mature endocrine phenotypes, with beta cells having the highest latent time measurements overall. 

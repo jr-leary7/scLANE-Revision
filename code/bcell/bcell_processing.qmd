@@ -55,9 +55,10 @@ Before we do anything else we load in the necessary software packages in both R 
 library(dplyr)       # data manipulation
 library(Seurat)      # scRNAseq tools
 library(scLANE)      # trajectory DE
+library(Lamian)      # more trajectory DE
 library(ggplot2)     # pretty plots
 library(biomaRt)     # gene annotation
-library(tradeSeq)    # more trajectory DE
+library(tradeSeq)    # even more trajectory DE
 library(patchwork)   # plot alignment
 library(slingshot)   # pseudotime estimation
 library(reticulate)  # Python interface
@@ -667,7 +668,7 @@ seu_bcell <- NormalizeData(seu_bcell, verbose = FALSE) %>%
              FindVariableFeatures(selection.method = "vst", verbose = FALSE)
 ```
 
-## Trajectory DE testing
+## `scLANE` DE analysis
 
 We use the `scLANE` package to perform trajectory DE testing across pseudotime time for the top HVGs with mean expression greater than 0.05. Since our dataset is of moderate size and composed of samples from multiple subjects we'll utilize the GEE mode of `scLANE`. 
 
@@ -694,19 +695,22 @@ scLANE_models <- testDynamic(seu_bcell_sort,
                              id.vec = seu_bcell_sort$fetal.ids, 
                              n.cores = 6L,
                              verbose = FALSE)
-scLANE_de_res <- getResultsDE(scLANE_models)
 ```
 
 ## `tradeSeq` DE analysis
+
+Continuing on, we perform subject-naive TDE testing via `tradeSeq`.
 
 ```{r}
 ts_start <- Sys.time()
 bioc_par <- BiocParallel::MulticoreParam(workers = 6L, RNGseed = 312)
 RNA_counts <- as.matrix(seu_bcell@assays$RNA$counts)[hvgs$gene, ]
+cell_offset_2 <- createCellOffset(seu_bcell)
+pt_df_2 <- data.frame(DPT = seu_bcell$dpt_pseudotime)
 k_eval <- evaluateK(RNA_counts, 
-                    pseudotime = pt_df, 
-                    cellWeights = matrix(rep(1, nrow(pt_df)), ncol = 1), 
-                    offset = log(1 / cell_offset), 
+                    pseudotime = pt_df_2, 
+                    cellWeights = matrix(rep(1, nrow(pt_df_2)), ncol = 1), 
+                    offset = log(1 / cell_offset_2), 
                     k = 3:10, 
                     plot = FALSE, 
                     nGenes = 500, 
@@ -715,9 +719,9 @@ k_eval <- evaluateK(RNA_counts,
                     BPPARAM = bioc_par)
 best_k <- c(3:10)[which.min(abs(colMeans(k_eval - rowMeans(k_eval))))]  # choose k w/ lowest MAD from mean AIC 
 ts_models <- fitGAM(RNA_counts, 
-                    pseudotime = pt_df, 
-                    cellWeights = matrix(rep(1, nrow(pt_df)), ncol = 1), 
-                    offset = log(1 / cell_offset), 
+                    pseudotime = pt_df_2, 
+                    cellWeights = matrix(rep(1, nrow(pt_df_2)), ncol = 1), 
+                    offset = log(1 / cell_offset_2), 
                     nknots = best_k, 
                     sce = FALSE, 
                     parallel = TRUE, 
@@ -726,18 +730,47 @@ ts_models <- fitGAM(RNA_counts,
 BiocParallel::bpstop(bioc_par)
 ts_end <- Sys.time()
 ts_diff <- ts_end - ts_start
-ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
-                             arrange(pvalue) %>% 
-                             mutate(gene = rownames(.), 
-                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
-                                    gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
-                             relocate(gene)
 ```
 
 The runtime for `tradeSeq` with `r best_k` knots per gene is: 
 
 ```{r}
 ts_diff
+```
+
+## `Lamian` DE analysis
+
+Next, we perform subject-aware trajectory DE testing with `Lamian` using their default settings. 
+
+```{r}
+lamian_start <- Sys.time()
+cell_anno <- select(seu_bcell@meta.data, 
+                    Cell = cell, 
+                    Sample = fetal.ids) %>% 
+             mutate(across(everything(), as.character)) %>% 
+             magrittr::set_rownames(NULL)
+cell_pt <- as.integer(rank(seu_bcell$dpt_pseudotime))
+names(cell_pt) <- cell_anno$Cell
+samp_design <- data.frame(intercept = rep(1, length(unique(seu_bcell$fetal.ids)))) %>%
+               magrittr::set_rownames(unique(seu_bcell$fetal.ids)) %>%
+               as.matrix()
+lamian_models <- lamian_test(expr = as.matrix(seu_bcell@assays$RNA$data)[hvgs$gene, ],
+                             cellanno = cell_anno,
+                             pseudotime = cell_pt,
+                             design = samp_design,
+                             test.type = "time", 
+                             test.method = "permutation", 
+                             permuiter = 100, 
+                             verbose.output = FALSE, 
+                             ncores = 6L)
+lamian_end <- Sys.time()
+lamian_diff <- lamian_end - lamian_start
+```
+
+The runtime for `Lamian` is: 
+
+```{r}
+lamian_diff
 ```
 
 ## Cell fate analysis
@@ -782,6 +815,8 @@ ctk.compute_transition_matrix(threshold_scheme='soft', show_progress_bar=False)
 Plotting the projection of that matrix on our diffusion map embedding shows messy but overall correct directionality. 
 
 ```{python}
+#| message: false
+#| warning: false
 #| code-fold: true
 #| fig-cap: Diffusion map embedding streamline plot showing differentiation directions as inferred from CytoTRACE scores.
 #| label: fig-project-CT
@@ -910,6 +945,7 @@ Finally, we save our `Seurat` object, the output from `Slingshot`, and the model
 saveRDS(seu_bcell, file = "../../data/bcell/seu_bcell.Rds")
 saveRDS(scLANE_models, file = "../../data/bcell/scLANE_models.Rds")
 saveRDS(ts_models, file = "../../data/bcell/ts_models.Rds")
+saveRDS(lamian_models, file = "../../data/bcell/lamian_models.Rds")
 ```
 
 # Session info {#sec-SI}
