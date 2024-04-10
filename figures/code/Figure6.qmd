@@ -1,0 +1,713 @@
+---
+title: "Figure 6"
+subtitle: "Bacher Group"
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(comment = NA)
+reticulate::use_condaenv("../../../../py_envs/scLANE_env2/", required = TRUE)
+set.seed(312)  # lucky seed
+```
+
+# Libraries {#sec-libs}
+
+We begin by loading the prerequisite libraries needed to make our plots. 
+
+## R
+
+```{r}
+#| message: false
+#| warning: false
+library(dplyr)       # data manipulation
+library(Seurat)      # scRNA-seq tools
+library(scLANE)      # trajectory DE
+library(Lamian)      # more trajectory DE
+library(ggplot2)     # pretty plots
+library(ggupset)     # upset plots
+library(biomaRt)     # gene annotation
+library(tradeSeq)    # even more trajectory DE
+library(patchwork)   # plot alignment
+library(slingshot)   # pseudotime inference
+library(reticulate)  # Python interface
+rename <- dplyr::rename
+select <- dplyr::select
+```
+
+## Python
+
+```{python}
+#| message: false
+#| warning: false
+import warnings                                                 # filter out warnings
+import numpy as np                                              # linear algebra tools
+import scanpy as sc                                             # scRNA-seq tools
+import pandas as pd                                             # DataFrames
+import anndata as ad                                            # scRNA-seq data structures
+import scvelo as scv                                            # RNA velocity
+import cellrank as cr                                           # cell fate estimation
+import matplotlib.pyplot as plt                                 # pretty plots
+from matplotlib import gridspec                                 # subplot alignment
+from cellrank.kernels import PseudotimeKernel, CytoTRACEKernel  # CellRank kernels
+```
+
+Here we set a few global variables to reduce the amount of printed output caused by our Python code. 
+
+```{python}
+warnings.simplefilter('ignore', category=UserWarning)
+sc.settings.verbosity = 0
+scv.settings.verbosity = 0
+cr.settings.verbosity = 0
+```
+
+# Visualization tools {#sec-viz-tools}
+
+First we define a `ggplot` guide that will make our legends cleaner and easier to read. 
+
+```{r}
+guide_umap <- function(key.size = 5) {
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, 
+                                                                    alpha = 1, 
+                                                                    stroke = 0.25)))
+}
+```
+
+Next we define consistent color palettes to be used throughout. 
+
+```{r}
+palette_heatmap <- paletteer::paletteer_d("MetBrewer::Hiroshige", direction = -1)
+palette_cluster <- paletteer::paletteer_d("ggsci::default_locuszoom")
+palette_celltype <- paletteer::paletteer_d("ggsci::default_igv")
+palette_models <- paletteer::paletteer_d("ggsci::nrc_npg")[c(1, 3:4)]
+names(palette_models) <- c("scLANE - GEE", "tradeSeq", "Lamian")
+```
+
+Lastly we define a theme for `matplotlib`. 
+
+```{python}
+base_size = 9
+plt.rcParams.update({
+    # font
+    'font.size': base_size, 
+    'font.weight': 'normal',
+    # figure
+    'figure.dpi': 320, 
+    'figure.edgecolor': 'white', 
+    'figure.facecolor': 'white', 
+    'figure.figsize': (6, 4), 
+    'figure.constrained_layout.use': True,
+    # axes
+    'axes.edgecolor': 'black',
+    'axes.grid': False,
+    'axes.labelpad': 2.75,
+    'axes.labelsize': base_size * 0.8,
+    'axes.linewidth': 1.5,
+    'axes.spines.right': False,
+    'axes.spines.top': False,
+    'axes.titlelocation': 'left',
+    'axes.titlepad': 11,
+    'axes.titlesize': base_size,
+    'axes.titleweight': 'normal',
+    'axes.xmargin': 0.1, 
+    'axes.ymargin': 0.1, 
+    # legend
+    'legend.borderaxespad': 1,
+    'legend.borderpad': 0.5,
+    'legend.columnspacing': 2,
+    'legend.fontsize': base_size * 0.8,
+    'legend.frameon': False,
+    'legend.handleheight': 1,
+    'legend.handlelength': 1.2,
+    'legend.labelspacing': 1,
+    'legend.title_fontsize': base_size, 
+    'legend.markerscale': 1.5
+})
+```
+
+# Helper functions {#sec-fns}
+
+```{r}
+#| code-fold: true
+get_pop_fit_Lamian <- function(lamian.res = NULL) {
+  # check inputs 
+  if (is.null(lamian.res)) { stop("lamian.res must be non-NULL.") }
+  
+  # get predicted values from GAMs per-gene
+  design <- lamian.res$design
+  design <- design[, 1, drop = FALSE]
+  knotnum <- lamian.res$knotnum
+  pt_vec <- lamian.res$pseudotime
+  pt_vec <- pt_vec[order(pt_vec)]
+  gene <- rownames(lamian.res$statistics)
+  fit_list <- purrr::map(gene, function(g) {
+    tmp <- matrix(lamian.res$parameter[[g]]$beta, ncol = knotnum[g] + 4)
+    beta <- as.vector(tmp[1, ])
+    x <- purrr::map(rownames(design), function(i) {
+      kronecker(diag(knotnum[g] + 4), design[i, , drop = FALSE])
+    })
+    if (knotnum[g] == 0) {
+      phi <- splines::bs(pt_vec, intercept = TRUE)
+    } else {
+      knots <- seq(min(pt_vec), max(pt_vec), length.out = knotnum[g] + 2)[2:(knotnum[g] + 1)]
+      phi <- splines::bs(pt_vec, knots = knots, intercept = TRUE)
+    }
+    i <- x[[1]]
+    if (ncol(phi) == nrow(i)) {
+      fit <- phi %*% i %*% beta
+    } else {
+      fit <- phi %*% t(i) %*% beta
+    }
+    fit_df <- data.frame(fit_link = as.numeric(fit))
+    rownames(fit_df) <- rownames(fit)
+    return(fit_df)
+  })
+  names(fit_list) <- gene
+  return(fit_list)
+}
+
+get_preds_Lamian <- function(lamian.res = NULL) {
+  # check inputs 
+  if (is.null(lamian.res)) { stop("lamian.res must be non-NULL.") }
+  
+  # run 
+  expr <- lamian.res$expr
+  design <- lamian.res$design
+  cellanno <- lamian.res$cellanno
+  knotnum <- lamian.res$knotnum
+  pt_vec <- lamian.res$pseudotime[colnames(expr)]
+  gene <- rownames(expr)
+  
+  phi_list <- purrr::map(sort(unique(knotnum)), function(k) {
+    if (k == 0) {
+      phi <- splines::bs(pt_vec, intercept = TRUE)
+    } else {
+      knots <- seq(min(pt_vec), max(pt_vec), length.out = k + 2)[2:(k + 1)]
+      phi <- splines::bs(pt_vec, knots = knots, intercept = TRUE)
+    }
+  })
+  names(phi_list) <- as.character(sort(unique(knotnum)))
+  
+  sname <- purrr::map(rownames(design), function(i) {
+    cellanno[cellanno[, 2] == i, 1]
+  })
+  names(sname) <- rownames(design)
+  
+  k <- unique(knotnum)[2]
+  pred <- purrr::map(unique(knotnum), function(k) {
+    genesub <- names(knotnum)[knotnum == k]
+    B <- purrr::map(genesub, function(g) {
+      lamian.res$parameter[[g]]$beta
+    })
+    B <- purrr::reduce(B, rbind)
+    if (length(genesub) == 1) {
+      B <- matrix(B, nrow = 1)
+    }
+    rownames(B) <- genesub
+    
+    omega <- purrr::map(genesub, function(g) {
+      lamian.res$parameter[[g]]$omega
+    }) %>% 
+      purrr::reduce(rbind)
+    if (length(genesub) == 1) {
+      omega <- matrix(omega, nrow = 1)
+    }
+    rownames(omega) <- genesub
+    
+    phi <- phi_list[[as.character(k)]]
+    phi <- purrr::map(rownames(design), function(ss) {
+      phi[sname[[ss]], ]
+    })
+    names(phi) <- rownames(design)
+    
+    xs <- purrr::map(rownames(design), function(i) {
+      kronecker(diag(k + 4), design[i, 1, drop = FALSE])
+    })
+    names(xs) <- rownames(design)
+    
+    phi_phi <- purrr::map(rownames(design), function(s) {
+      t(phi[[s]]) %*% phi[[s]]
+    })
+    names(phi_phi) <- rownames(design)
+    
+    phiX <- purrr::map(rownames(design), function(s) {
+      phi[[s]] %*% t(xs[[s]])
+    })
+    names(phiX) <- rownames(design)
+    
+    s <- rownames(design)[1]
+    predtmp <- purrr::map(rownames(design), function(s) {
+      sexpr <- expr[genesub, , drop = FALSE]
+      sexpr_phibx <- sexpr[genesub, cellanno[, 2] == s, drop = FALSE] - (B[genesub, ] %*% t(phiX[[s]]))
+      nb <- k + 4
+      oinv <- purrr::map(genesub, function(g) {
+        chol2inv(chol(matrix(omega[g, , drop = FALSE], nrow = nb)))
+      })
+      names(oinv) <- genesub
+      Jchol <- purrr::map(genesub, function(g) {
+        chol(phi_phi[[s]] + oinv[[g]])
+      })
+      names(Jchol) <- genesub
+      Jsolve <- purrr::map(genesub, function(g) {
+        as.numeric(chol2inv(Jchol[[g]]))
+      }) %>% 
+        purrr::reduce(cbind)
+      if (length(genesub) == 1) {
+        Jsolve <- matrix(Jsolve, ncol = 1)
+      }
+      colnames(Jsolve) <- genesub
+      
+      K <- tcrossprod(t(phi[[s]]), sexpr_phibx)
+      JK <- rowsum((Jsolve * K[rep(seq_len(nb), nb), , drop = FALSE]), rep(seq_len(nb), each =  nb)) 
+      res <- t(phi[[s]] %*% JK)
+      return(res)
+    })
+    predtmp <- purrr::reduce(predtmp, cbind)
+  })
+  pred <- purrr::reduce(pred, rbind)
+  pred <- pred[gene, colnames(expr), drop = FALSE]
+  populationFit <- t(get_pop_fit_Lamian(lamian.res = lamian.res) %>% purrr::reduce(cbind))
+  pred_res <- pred + populationFit
+  return(pred_res)
+}
+
+compute_resp_preds_Lamian <- function(lamian.preds, cell.offset) {
+  # check inputs 
+  if (is.null(lamian.preds) || is.null(cell.offset)) { stop("Inputs must be non-NULL.") }
+  
+  # compute fitted values on response scale (raw counts)
+  pred_res_resp <- purrr::map(seq(nrow(lamian.preds)), function(r) {
+    fitted_vals <- lamian.preds[r, , drop = FALSE]
+    fitted_vals_resp <- t(t(2^(fitted_vals) - 1) * cell.offset)
+    return(fitted_vals_resp)
+  }) 
+  pred_res_resp <- purrr::reduce(pred_res_resp, rbind)
+  rownames(pred_res_resp) <- rownames(lamian.preds)
+  return(pred_res_resp)
+}
+```
+
+# Data {#sec-data}
+
+## Preprocessed objects
+
+First we import our `AnnData` object, making sure that the celltype palette matches what we've defined in R.
+
+```{python}
+ad_bcell = ad.read_h5ad('../../data/bcell/ad_bcell.h5ad')
+ad_bcell.uns['celltype_colors'] = np.array(r.palette_celltype[0:5])
+ad_bcell.obs['celltype'] = ad_bcell.obs['celltype'].astype(pd.CategoricalDtype(categories=['HSC', 'Pre Pro B-cell', 'Pro B-cell', 'Pre B-cell', 'B-cell'], ordered=True))
+```
+
+We read in our processed `Seurat` object, and create some objects that we'll need to use `scLANE`, along with some tables we'll use throughout our various plots. 
+
+```{r}
+seu_bcell <- readRDS("../../data/bcell/seu_bcell.Rds")
+cell_offset <- createCellOffset(seu_bcell)
+pt_df <- data.frame(DPT = seu_bcell$dpt_pseudotime)
+embed_df <- data.frame(cell = seu_bcell$cell, 
+                       celltype = seu_bcell$celltype, 
+                       leiden = seu_bcell$leiden, 
+                       dc1 = seu_bcell@reductions$diffmap@cell.embeddings[, 1], 
+                       dc2 = seu_bcell@reductions$diffmap@cell.embeddings[, 2], 
+                       dpt = seu_bcell$dpt_pseudotime)
+```
+
+We read in the fitted models from `scLANE` that we generated earlier. We then produce a tidy table of DE statistics, and identify a set of trajectory DE genes. 
+
+```{r}
+scLANE_models <- readRDS("../../data/bcell/scLANE_models.Rds")
+scLANE_de_res <- getResultsDE(scLANE_models)
+dyn_genes <- filter(scLANE_de_res, Gene_Dynamic_Overall == 1) %>% 
+             pull(Gene)
+seu_bcell_sort <- sortObservations(seu_bcell, 
+                                   pt = seu_bcell$dpt_pseudotime, 
+                                   id.vec = seu_bcell$fetal.ids)
+cell_offset_sort <- createCellOffset(seu_bcell_sort)
+pt_df_sort <- data.frame(DPT = seu_bcell_sort$dpt_pseudotime)
+```
+
+Next we read in the fitted models from `tradeSeq`. 
+
+```{r}
+ts_models <- readRDS("../../data/bcell/ts_models.Rds")
+ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
+                             arrange(desc(waldStat)) %>% 
+                             mutate(gene = rownames(.), 
+                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
+                             relocate(gene)
+dyn_genes_ts <- filter(ts_de_res, gene_dynamic_overall == 1) %>% 
+                pull(gene)
+```
+
+Lastly we import the fitted models from `Lamian`. 
+
+```{r}
+lamian_models <- readRDS("../../data/bcell/lamian_models.Rds")
+lamian_models$populationFit <- getPopulationFit(lamian_models)
+lamian_models$fitted_values_link <- get_preds_Lamian(lamian_models)
+lamian_models$fitted_values_resp <- compute_resp_preds_Lamian(lamian_models$fitted_values_link, cell.offset = cell_offset)
+lamian_de_res <- rename(lamian_models$statistics, 
+                        pvalue = pval.overall, 
+                        Zstat = z.overall) %>% 
+                 arrange(desc(Zstat)) %>% 
+                 mutate(pvalue_adj = p.adjust(pvalue, method = "holm")) %>% 
+                 mutate(gene = rownames(.), 
+                        gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
+                 select(gene, 
+                        Zstat, 
+                        pvalue,
+                        pvalue_adj, 
+                        gene_dynamic_overall)
+dyn_genes_lamian <- filter(lamian_de_res, gene_dynamic_overall == 1) %>% 
+                    pull(gene)
+```
+
+## Kernel-based `CellRank` analysis
+
+Using our processed `AnnData` object we instantiate CytoTRACE- & pseudotime-based kernels, then combine them in a weighted fashion. 
+
+```{python}
+#| results: hide
+ctk = CytoTRACEKernel(ad_bcell).compute_cytotrace()
+ctk.compute_transition_matrix(threshold_scheme='soft', show_progress_bar=False)
+pk = PseudotimeKernel(ad_bcell, time_key='dpt_pseudotime')
+pk.compute_transition_matrix(threshold_scheme='soft', show_progress_bar=False)
+ck = 0.3 * ctk + 0.7 * pk
+```
+
+## Table of transcription factors
+
+Next we read in a table of human TFs from [Lambert *et al* (2018)](https://doi.org/10.1016/j.cell.2018.01.029). 
+
+```{r}
+#| message: false
+#| warning: false
+hs_ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+hs_tf_raw <- readr::read_csv("http://humantfs.ccbr.utoronto.ca/download/v_1.01/DatabaseExtract_v_1.01.csv",
+                             col_select = -1,
+                             num_threads = 2,
+                             show_col_types = FALSE) %>%
+             janitor::clean_names() %>%
+             filter(is_tf == "Yes") %>%
+             select(ensembl_id)
+hs_tfs <- getBM(attributes = c("ensembl_gene_id", "hgnc_symbol", "entrezgene_id", "description", "gene_biotype"),
+                filters = "ensembl_gene_id",
+                values = hs_tf_raw$ensembl_id,
+                mart = hs_ensembl,
+                uniqueRows = TRUE) %>%
+          rename(ensembl_id = ensembl_gene_id,
+                 entrez_id = entrezgene_id) %>%
+          arrange(ensembl_id) %>%
+          mutate(hgnc_symbol = if_else(hgnc_symbol == "", NA_character_, hgnc_symbol),
+                 description = gsub("\\[Source.*", "", description))
+```
+
+Lastly, we create a table of significantly DE TFs for each trajectory DE method. 
+
+```{r}
+scLANE_sig_TFs <- inner_join(scLANE_de_res, 
+                             hs_tfs, 
+                             by = c("Gene" = "hgnc_symbol")) %>% 
+                  filter(Gene_Dynamic_Overall == 1)
+ts_sif_TFs <- inner_join(ts_de_res, 
+                         hs_tfs, 
+                         by = c("gene" = "hgnc_symbol")) %>% 
+              filter(gene_dynamic_overall == 1)
+lamian_sig_tfs <- inner_join(lamian_de_res, 
+                             hs_tfs, 
+                             by = c("gene" = "hgnc_symbol")) %>% 
+                  filter(gene_dynamic_overall == 1)
+```
+
+# Figure 6 {#sec-fig6}
+
+## A
+
+```{r}
+#| fig-width: 3
+#| fig-height: 2.5
+Fig_6A <- ggplot(embed_df, aes(x = dc1, y = dc2, color = celltype)) + 
+          geom_point(size = 1.5, 
+                     alpha = 0.5, 
+                     stroke = 0) + 
+         labs(x = "DC 1", y = "DC 2") + 
+         scale_color_manual(values = palette_celltype) + 
+         theme_scLANE(base.size = 9, umap = TRUE) + 
+         theme(legend.title = element_blank()) + 
+         guide_umap(key.size = 4)
+Fig_6A
+```
+
+```{r}
+ggsave("Figure_6A.png",
+       plot = Fig_6A, 
+       device = "png", 
+       path = "../png/",
+       width = 3, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 300)
+```
+
+## B
+
+```{r}
+#| fig-width: 2.4
+#| fig-height: 2.5
+Fig_6B <- ggplot(embed_df, aes(x = dc1, y = dc2, color = dpt)) + 
+          geom_point(size = 1.5, 
+                     alpha = 0.5, 
+                     stroke = 0) + 
+         labs(x = "DC 1", 
+              y = "DC 2", 
+              color = "Pseudotime") + 
+         scale_color_gradientn(colors = palette_heatmap) + 
+         theme_scLANE(base.size = 9, umap = TRUE) + 
+         theme(legend.position = "top") + 
+         guides(color = guide_colorbar(title.vjust = 0.25, 
+                                       label.position = "top", 
+                                       barheight = unit(0.15, "in")))
+Fig_6B
+```
+
+```{r}
+ggsave("Figure_6B.png",
+       plot = Fig_6B, 
+       device = "png", 
+       path = "../png/",
+       width = 2.4, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 300)
+```
+
+## C
+
+```{python}
+#| message: false
+#| warning: false
+#| fig-width: 2.5
+#| fig-height: 2.5
+ck.plot_random_walks(
+    n_sims=200,
+    start_ixs={'celltype': 'HSC'},
+    basis='diffmap',
+    color='celltype',
+    legend_loc='right margin',
+    seed=312, 
+    frameon=True, 
+    title='', 
+    linewidth=0.5, 
+    linealpha=0.25, 
+    size=30, 
+    alpha=0.5, 
+    components='0,1',
+    ixs_legend_loc='upper', 
+    show_progress_bar=False, 
+    figsize=(2.5, 2.5), 
+    dpi=300
+)
+plt.gca().set_xlabel('DC 1')
+plt.gca().set_ylabel('DC 2')
+plt.gcf().savefig('../png/Figure_6C.png', bbox_inches='tight')
+plt.show()
+```
+
+## D
+
+```{r}
+#| message: false
+#| warning: false
+#| fig-width: 3.33
+#| fig-height: 3
+subj_id_df <- distinct(seu_bcell@meta.data, fetal.ids) %>% 
+              mutate(subject_label = paste0("S", row_number()))
+cd79a_scLANE <- getFittedValues(scLANE_models, 
+                                genes = "CD79A", 
+                                pt = pt_df_sort, 
+                                expr.mat = seu_bcell_sort, 
+                                size.factor.offset = cell_offset_sort, 
+                                log1p.norm = TRUE, 
+                                id.vec = seu_bcell_sort$fetal.ids)
+Fig_6D <- data.frame(subject_id = seu_bcell@meta.data$fetal.ids, 
+                     dpt = seu_bcell$dpt_pseudotime, 
+                     cd79a = seu_bcell@assays$RNA$data["CD79A", ]) %>% 
+          left_join(subj_id_df, by = c("subject_id" = "fetal.ids")) %>% 
+          mutate(subject_label = factor(subject_label, levels = paste0("S", 1:14))) %>% 
+          ggplot(aes(x = dpt, y = cd79a)) + 
+          geom_line(aes(color = subject_label), 
+                    stat = "smooth", 
+                    alpha = 0.5, 
+                    linewidth = 0.75) + 
+          geom_ribbon(data = cd79a_scLANE, 
+                      mapping = aes(x = pt, y = rna_log1p, ymin = log1p(scLANE_ci_ll / size_factor), ymax = log1p(scLANE_ci_ul / size_factor)), 
+                      fill = "grey50", 
+                      linewidth = 0, 
+                      alpha = 0.7) + 
+          geom_line(data = cd79a_scLANE, 
+                    mapping = aes(x = pt, y = log1p(scLANE_pred / size_factor)), 
+                    color = "black", 
+                    linewidth = 1.25) + 
+          labs(x = "Pseudotime", 
+               y = "Normalized Expression", 
+               color = "Subject") + 
+          theme_scLANE(base.size = 9) + 
+          guides(color = guide_legend(ncol = 2, override.aes = list(alpha = 1, linewidth = 1)))
+Fig_6D
+```
+
+```{r}
+ggsave("Figure_6D.png",
+       plot = Fig_6D, 
+       device = "png", 
+       path = "../png/",
+       width = 3.5, 
+       height = 3, 
+       units = "in", 
+       dpi = 300)
+```
+
+## E
+
+```{r}
+#| fig-width: 3.83
+#| fig-height: 3
+de_gene_df <- data.frame(method = c(rep("scLANE", length(dyn_genes)), 
+                                    rep("tradeSeq", length(dyn_genes_ts)), 
+                                    rep("Lamian", length(dyn_genes_lamian))), 
+                         gene = c(dyn_genes, dyn_genes_ts, dyn_genes_lamian)) %>% 
+              as_tibble() %>% 
+              group_by(gene) %>% 
+              summarise(methods = list(method))
+Fig_6E <- ggplot(de_gene_df, aes(x = methods)) +
+          geom_bar(fill = "forestgreen", 
+                   color = "darkgreen", 
+                   alpha = 0.7, 
+                   linewidth = 0.75) +
+          geom_text(aes(label = after_stat(count)), 
+                    stat = "count",
+                    vjust = -0.25, 
+                    size = 2.75) +
+          scale_x_upset() + 
+          scale_y_continuous(labels = scales::label_number(accuracy = 1, big.mark = "")) + 
+          theme(text = element_text(size = 9), 
+                axis.line = element_line(linewidth = 0.75, lineend = "square"), 
+                axis.title = element_blank(), 
+                panel.grid = element_blank(), 
+                panel.background = element_rect(fill = "white"))
+Fig_6E
+```
+
+```{r}
+ggsave("Figure_6E.png",
+       plot = Fig_6E, 
+       device = "png", 
+       path = "../png/",
+       width = 3.8, 
+       height = 3, 
+       units = "in", 
+       dpi = 300)
+```
+
+## F
+
+```{r}
+#| fig-width: 7.3
+#| fig-height: 3.83
+non_sclANE_dyn_genes <- unique(c(dyn_genes_ts, dyn_genes_lamian))[!unique(c(dyn_genes_ts, dyn_genes_lamian)) %in% dyn_genes]
+Fig_6F <- getFittedValues(scLANE_models, 
+                          genes = (filter(scLANE_de_res, Gene %in% non_sclANE_dyn_genes) %>% slice_head(n = 8) %>% pull(Gene)),
+                          pt = pt_df_sort, 
+                          expr.mat = seu_bcell_sort, 
+                          size.factor.offset = cell_offset_sort, 
+                          cell.meta.data = select(seu_bcell_sort@meta.data, celltype), 
+                          id.vec = seu_bcell_sort$fetal.ids) %>% 
+          ggplot(aes(x = pt, y = rna_log1p)) + 
+          facet_wrap(~gene, ncol = 4) + 
+          geom_point(aes(color = celltype), 
+                     size = 1.25, 
+                     stroke = 0, 
+                     alpha = 0.75) + 
+          geom_ribbon(aes(ymin = log1p(scLANE_ci_ll / size_factor), ymax = log1p(scLANE_ci_ul / size_factor)), 
+                      fill = "grey50", 
+                      linewidth = 0, 
+                      alpha = 0.7) + 
+          geom_line(aes(y = log1p(scLANE_pred / size_factor)), 
+                    color = "black", 
+                    linewidth = 0.75) + 
+          scale_color_manual(values = palette_celltype) + 
+          labs(x = "Pseudotime", y = "Normalized Expression") + 
+          theme_scLANE(base.size = 9) + 
+          theme(legend.title = element_blank()) + 
+          guide_umap(key.size = 4)
+Fig_6F
+```
+
+```{r}
+ggsave("Figure_6F.png",
+       plot = Fig_6F, 
+       device = "png", 
+       path = "../png/",
+       width = 7.3, 
+       height = 3.83, 
+       units = "in", 
+       dpi = 300)
+```
+
+# Magic numbers {#sec-nums}
+
+```{r}
+enrich_res <- gprofiler2::gost(non_sclANE_dyn_genes,
+                               organism = "hsapiens", 
+                               ordered_query = FALSE, 
+                               significant = FALSE, 
+                               sources = "GO:BP")$result %>% 
+              select(term_id, 
+                     term_name, 
+                     source, 
+                     p_value) %>% 
+              filter(p_value < 0.01)
+readr::write_csv(enrich_res, "../../tables/Suppl_Table1.csv",
+                 col_names = TRUE, 
+                 progress = FALSE)
+nrow(enrich_res)
+```
+
+# Session info {#sec-SI}
+
+```{r}
+sessioninfo::session_info()
+```

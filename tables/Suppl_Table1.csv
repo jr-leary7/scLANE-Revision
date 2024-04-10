@@ -1,0 +1,99 @@
+term_id,term_name,source,p_value
+GO:0060255,regulation of macromolecule metabolic process,GO:BP,1.07806465968604e-10
+GO:0070887,cellular response to chemical stimulus,GO:BP,1.6206093644582383e-10
+GO:0019222,regulation of metabolic process,GO:BP,3.391432899288546e-10
+GO:0051171,regulation of nitrogen compound metabolic process,GO:BP,6.991785200511254e-10
+GO:0010604,positive regulation of macromolecule metabolic process,GO:BP,1.062478144831818e-9
+GO:0080090,regulation of primary metabolic process,GO:BP,2.1506130881302924e-9
+GO:0009893,positive regulation of metabolic process,GO:BP,2.3764058645949492e-9
+GO:0006950,response to stress,GO:BP,8.659319611354913e-9
+GO:0050896,response to stimulus,GO:BP,8.993151417922147e-9
+GO:0033554,cellular response to stress,GO:BP,1.316378472175767e-8
+GO:0048519,negative regulation of biological process,GO:BP,1.4016499538620006e-8
+GO:0048523,negative regulation of cellular process,GO:BP,3.994096074085858e-8
+GO:0031323,regulation of cellular metabolic process,GO:BP,9.349038851024856e-8
+GO:0048518,positive regulation of biological process,GO:BP,1.0344098691142334e-7
+GO:0010033,response to organic substance,GO:BP,1.1380562042475037e-7
+GO:0009891,positive regulation of biosynthetic process,GO:BP,1.3908239880219935e-7
+GO:0010557,positive regulation of macromolecule biosynthetic process,GO:BP,1.7091586292386095e-7
+GO:0031328,positive regulation of cellular biosynthetic process,GO:BP,2.6085440594641644e-7
+GO:0051716,cellular response to stimulus,GO:BP,3.9987876501452976e-7
+GO:0042221,response to chemical,GO:BP,5.971549482129579e-7
+GO:0030097,hemopoiesis,GO:BP,6.961637163475098e-7
+GO:0031325,positive regulation of cellular metabolic process,GO:BP,7.332240853303042e-7
+GO:0048522,positive regulation of cellular process,GO:BP,7.773908321571945e-7
+GO:0006915,apoptotic process,GO:BP,8.437765490357906e-7
+GO:0051173,positive regulation of nitrogen compound metabolic process,GO:BP,9.68902997750092e-7
+GO:0008283,cell population proliferation,GO:BP,1.7891314180950955e-6
+GO:0012501,programmed cell death,GO:BP,3.2963235249555623e-6
+GO:0008219,cell death,GO:BP,3.5509776392443625e-6
+GO:0071310,cellular response to organic substance,GO:BP,7.127402534058157e-6
+GO:0032502,developmental process,GO:BP,1.0460430435649378e-5
+GO:0034097,response to cytokine,GO:BP,1.2793484503235733e-5
+GO:0050789,regulation of biological process,GO:BP,1.8210524077879713e-5
+GO:0065007,biological regulation,GO:BP,2.4674945688090602e-5
+GO:0002682,regulation of immune system process,GO:BP,3.135926646117527e-5
+GO:0042981,regulation of apoptotic process,GO:BP,3.3397537121129684e-5
+GO:0045595,regulation of cell differentiation,GO:BP,3.930421843092257e-5
+GO:0042127,regulation of cell population proliferation,GO:BP,3.953723135139106e-5
+GO:0009889,regulation of biosynthetic process,GO:BP,4.7943120663966684e-5
+GO:0019219,regulation of nucleobase-containing compound metabolic process,GO:BP,6.29698309164944e-5
+GO:0051246,regulation of protein metabolic process,GO:BP,6.883987762930924e-5
+GO:0031326,regulation of cellular biosynthetic process,GO:BP,7.125994559456283e-5
+GO:0050793,regulation of developmental process,GO:BP,7.535303324383818e-5
+GO:0043067,regulation of programmed cell death,GO:BP,7.891882062969418e-5
+GO:0010556,regulation of macromolecule biosynthetic process,GO:BP,8.249262915708419e-5
+GO:0009892,negative regulation of metabolic process,GO:BP,9.90657133606434e-5
+GO:0031324,negative regulation of cellular metabolic process,GO:BP,1.3325158249684593e-4
+GO:0071345,cellular response to cytokine stimulus,GO:BP,1.4794816436269518e-4
+GO:0006259,DNA metabolic process,GO:BP,1.9521686741378545e-4
+GO:0010628,positive regulation of gene expression,GO:BP,1.9575161363313378e-4
+GO:0030154,cell differentiation,GO:BP,2.0701724659009542e-4
+GO:0048869,cellular developmental process,GO:BP,2.0930775965693647e-4
+GO:1901564,organonitrogen compound metabolic process,GO:BP,2.661474180853636e-4
+GO:0051241,negative regulation of multicellular organismal process,GO:BP,3.114781641484463e-4
+GO:0051172,negative regulation of nitrogen compound metabolic process,GO:BP,3.3221137808666e-4
+GO:0051240,positive regulation of multicellular organismal process,GO:BP,3.32247445786937e-4
+GO:0009607,response to biotic stimulus,GO:BP,3.53314590679694e-4
+GO:0007049,cell cycle,GO:BP,4.363654352529467e-4
+GO:0019538,protein metabolic process,GO:BP,4.371489269607202e-4
+GO:0051707,response to other organism,GO:BP,4.729032949206065e-4
+GO:0045935,positive regulation of nucleobase-containing compound metabolic process,GO:BP,4.7761976141893407e-4
+GO:0043207,response to external biotic stimulus,GO:BP,4.990836797719002e-4
+GO:0002376,immune system process,GO:BP,5.454575705836123e-4
+GO:0044419,biological process involved in interspecies interaction between organisms,GO:BP,5.761217939012377e-4
+GO:1903706,regulation of hemopoiesis,GO:BP,7.097445533466631e-4
+GO:2000026,regulation of multicellular organismal development,GO:BP,7.370184684853765e-4
+GO:0002521,leukocyte differentiation,GO:BP,7.445005546954763e-4
+GO:0010468,regulation of gene expression,GO:BP,7.561309038998649e-4
+GO:0051239,regulation of multicellular organismal process,GO:BP,0.0011029442122637665
+GO:0050794,regulation of cellular process,GO:BP,0.0011482612240577327
+GO:0009628,response to abiotic stimulus,GO:BP,0.001336884668449445
+GO:0009605,response to external stimulus,GO:BP,0.0013543639418683879
+GO:0048872,homeostasis of number of cells,GO:BP,0.0013847953150116284
+GO:0097190,apoptotic signaling pathway,GO:BP,0.001501795864668403
+GO:1902105,regulation of leukocyte differentiation,GO:BP,0.0015093717957011374
+GO:0051052,regulation of DNA metabolic process,GO:BP,0.0015095467491787083
+GO:0010605,negative regulation of macromolecule metabolic process,GO:BP,0.0016257248229327526
+GO:0008285,negative regulation of cell population proliferation,GO:BP,0.0016931636166297053
+GO:0051254,positive regulation of RNA metabolic process,GO:BP,0.0018280211679102105
+GO:0001819,positive regulation of cytokine production,GO:BP,0.0021531768992269283
+GO:0002683,negative regulation of immune system process,GO:BP,0.0025323209652485827
+GO:0045893,positive regulation of DNA-templated transcription,GO:BP,0.0025552252357433137
+GO:0006986,response to unfolded protein,GO:BP,0.002623078066603502
+GO:1902680,positive regulation of RNA biosynthetic process,GO:BP,0.002679952529410661
+GO:0140546,defense response to symbiont,GO:BP,0.002790830692900856
+GO:0098542,defense response to other organism,GO:BP,0.002950998238490128
+GO:0051094,positive regulation of developmental process,GO:BP,0.003047871566873269
+GO:0044271,cellular nitrogen compound biosynthetic process,GO:BP,0.003127541987308066
+GO:0001817,regulation of cytokine production,GO:BP,0.0032428785063158255
+GO:0001816,cytokine production,GO:BP,0.0037524657799056795
+GO:0046649,lymphocyte activation,GO:BP,0.00413210950779854
+GO:0043066,negative regulation of apoptotic process,GO:BP,0.00423869214826898
+GO:0042110,T cell activation,GO:BP,0.004277830282243062
+GO:0001775,cell activation,GO:BP,0.005124257725334995
+GO:0048856,anatomical structure development,GO:BP,0.00599947076696709
+GO:0035966,response to topologically incorrect protein,GO:BP,0.00639723824019473
+GO:0043069,negative regulation of programmed cell death,GO:BP,0.007491770629069665
+GO:0009615,response to virus,GO:BP,0.008179692456643238
+GO:0045597,positive regulation of cell differentiation,GO:BP,0.008668328049944106
