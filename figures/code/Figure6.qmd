@@ -111,7 +111,7 @@ palette_heatmap <- paletteer::paletteer_d("MetBrewer::Hiroshige", direction = -1
 palette_cluster <- paletteer::paletteer_d("ggsci::default_locuszoom")
 palette_celltype <- paletteer::paletteer_d("ggsci::default_igv")
 palette_models <- paletteer::paletteer_d("ggsci::nrc_npg")[c(1, 3:4)]
-names(palette_models) <- c("scLANE - GEE", "tradeSeq", "Lamian")
+names(palette_models) <- c("scLANE", "tradeSeq", "Lamian")
 ```
 
 Lastly we define a theme for `matplotlib`. 
@@ -671,7 +671,8 @@ Fig_6F <- getFittedValues(scLANE_models,
           scale_color_manual(values = palette_celltype) + 
           labs(x = "Pseudotime", y = "Normalized Expression") + 
           theme_scLANE(base.size = 9) + 
-          theme(legend.title = element_blank()) + 
+          theme(legend.title = element_blank(), 
+                strip.text.x = element_text(face = "italic")) + 
           guide_umap(key.size = 4)
 Fig_6F
 ```
