@@ -212,6 +212,7 @@ Fig_2C <- filter(metric_table_master,
                       method = "loess", 
                       span = 1.25) + 
           scale_x_continuous(limits = c(100, 5000), breaks = c(100, 1000, 3000, 5000)) + 
+          scale_y_continuous(limits = c(0, NA_real_)) + 
           scale_color_manual(values = palette_models) + 
           scale_fill_manual(values = palette_models) + 
           labs(x = "Cells", y = "Genes per Minute") + 

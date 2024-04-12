@@ -61,8 +61,8 @@ metric_table_master <- qs::qread("../../data/simulation/metric_table_master")
 # Visualization tools {#sec-viz-tools}
 
 ```{r}
-palette_models <- c("#DC0000FF", "#00A1D5FF", "#D37295FF", "#349B58FF")
-names(palette_models) <- c("scLANE - GLM", "tradeSeq", "scLANE - GEE", "scLANE - GLMM")
+palette_models <- c("#DC0000FF", "#00A1D5FF", "#D37295FF", "#349B58FF", "#9467BDFF")
+names(palette_models) <- c("scLANE - GLM", "tradeSeq", "scLANE - GEE", "scLANE - GLMM", "Lamian")
 ```
 
 # Supplementary Figure 1 {#sec-fig1}
@@ -218,14 +218,7 @@ S_Fig_1D <- filter(metric_table_master,
             scale_color_manual(values = palette_models) + 
             labs(x = "Reference Dataset", y = "Balanced Accuracy") + 
             theme_scLANE(base.size = 9) + 
-            theme(legend.title = element_blank(),
-                  legend.position = "top", 
-                  legend.direction = "horizontal",
-                  legend.spacing.x = unit(0.02, "in"),
-                  legend.text = element_text(margin = margin(r = 0.1, unit = "in")), 
-                  legend.margin = margin(t = -0.02, b = -0.02, unit = "in")) + 
-            guides(color = guide_legend(override.aes = list(linewidth = 2, alpha = 1)), 
-                   fill = NULL)
+            theme(legend.position = "none")
 S_Fig_1D
 ```
 
@@ -242,7 +235,87 @@ ggsave("Suppl_Figure_1D.png",
 
 ## E
 
+```{r}
+#| fig-width: 3.5
+#| fig-height: 2.5
+S_Fig_1E <- filter(metric_table_master, 
+                   MODEL_TYPE %in% c("scLANE - GLMM", "scLANE - GEE", "Lamian")) %>% 
+            select(DATASET_NAME, N_CELLS, MODEL_TYPE, MEM_USED) %>% 
+            mutate(N_CELLS = round(N_CELLS, -1), 
+                   N_CELLS = as.factor(N_CELLS)) %>% 
+            with_groups(c(MODEL_TYPE, N_CELLS), 
+                        summarise, 
+                        MU = mean(MEM_USED / 1000), 
+                        SD = sd(MEM_USED / 1000), 
+                        N = n()) %>%
+            mutate(SE = SD / N) %>% 
+            ggplot(aes(x = N_CELLS, y = MU, fill = MODEL_TYPE, color = MODEL_TYPE)) + 
+            geom_bar(stat = "identity", 
+                     position = position_dodge2(padding = 0.2), 
+                     width = 0.5, 
+                     key_glyph = "path") + 
+            scale_color_manual(values = palette_models) + 
+            scale_fill_manual(values = palette_models) + 
+            labs(x = "Cells", y = "Mean Memory (GB)") + 
+            theme_scLANE(base.size = 9) + 
+            theme(legend.title = element_blank()) + 
+            guides(color = guide_legend(override.aes = list(linewidth = 2, alpha = 1)))
+S_Fig_1E
+```
+
+```{r}
+ggsave("Suppl_Figure_1E.png",
+       plot = S_Fig_1E, 
+       device = "png", 
+       path = "../png/",
+       width = 3.6, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 300)
+```
+
 ## F
+
+```{r}
+#| fig-width: 3.5
+#| fig-height: 2.5
+#| message: false
+#| warning: false
+S_Fig_1F <- filter(metric_table_master, 
+                   MODEL_TYPE %in% c("Lamian", "scLANE - GLMM", "scLANE - GEE")) %>% 
+            select(DATASET_NAME, MODEL_TYPE, N_CELLS, N_GENES, RUNTIME_HOURS) %>% 
+            mutate(N_CELLS = round(N_CELLS, -1), 
+                   RUNTIME_MINS = RUNTIME_HOURS * 60, 
+                   GENES_PER_MIN = N_GENES / RUNTIME_MINS) %>% 
+            ggplot(aes(x = N_CELLS, y = GENES_PER_MIN, color = MODEL_TYPE, fill = MODEL_TYPE)) + 
+            geom_point(size = 1.5, 
+                       alpha = 0.4,
+                       stroke = 0, 
+                       show.legend = FALSE) + 
+            geom_smooth(linewidth = 0.75, 
+                        se = FALSE, 
+                        show.legend = FALSE, 
+                        method = "loess", 
+                        span = 1.25) + 
+            scale_x_continuous(limits = c(100, 5000), breaks = c(100, 1000, 3000, 5000)) + 
+            scale_y_continuous(limits = c(0, NA_real_)) + 
+            scale_color_manual(values = palette_models) + 
+            scale_fill_manual(values = palette_models) + 
+            labs(x = "Cells", y = "Genes per Minute") + 
+            theme_scLANE(base.size = 9)
+S_Fig_1F
+```
+
+```{r}
+ggsave("Suppl_Figure_1F.png",
+       plot = S_Fig_1F, 
+       device = "png", 
+       path = "../png/",
+       width = 3.6, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 300)
+```
 
 # Session info {#sec-SI}
 
