@@ -61,8 +61,8 @@ metric_table_master <- qs::qread("../../data/simulation/metric_table_master")
 # Visualization tools {#sec-viz-tools}
 
 ```{r}
-palette_models <- c("#DC0000FF", "#00A1D5FF", "#D37295FF", "#349B58FF")
-names(palette_models) <- c("scLANE - GLM", "tradeSeq", "scLANE - GEE", "scLANE - GLMM")
+palette_models <- c("#DC0000FF", "#00A1D5FF", "#D37295FF", "#349B58FF", "#9467BDFF")
+names(palette_models) <- c("scLANE - GLM", "tradeSeq", "scLANE - GEE", "scLANE - GLMM", "Lamian")
 ```
 
 # Figure 2 {#sec-fig2}
@@ -236,7 +236,7 @@ ggsave("Figure_2C.png",
 #| fig-width: 2.5
 #| fig-height: 3
 Fig_2D <- filter(metric_table_master, 
-                 MODEL_TYPE == "scLANE - GEE") %>%
+                 MODEL_TYPE %in% c("scLANE - GEE", "Lamian")) %>% 
           mutate(N_CELLS = round(N_CELLS, -1), 
                  N_CELLS = as.factor(N_CELLS)) %>% 
           ggplot(aes(x = N_CELLS, y = BAL_ACCURACY, color = MODEL_TYPE)) + 
@@ -244,14 +244,15 @@ Fig_2D <- filter(metric_table_master,
                        fatten = 0.75, 
                        alpha = 0.25, 
                        outlier.shape = NA, 
+                       position = position_dodge(width = 1), 
                        key_glyph = "path") + 
           geom_point(size = 1, 
                      alpha = 1, 
                      stroke = 0, 
                      show.legend = FALSE, 
-                     position = position_jitter(seed = 312, width = 0.2)) + 
-          scale_y_continuous(labels = scales::label_percent(accuracy = 1)) + 
-          scale_color_manual(values = palette_models) +  
+                     position = position_jitterdodge(dodge.width = 1, seed = 312)) + 
+          scale_y_continuous(labels = scales::label_percent(accuracy = 1), limits = c(NA, 1)) + 
+          scale_color_manual(values = palette_models) + 
           labs(x = "Cells", y = "Balanced Accuracy") + 
           theme_scLANE(base.size = 9) + 
           theme(legend.title = element_blank(),

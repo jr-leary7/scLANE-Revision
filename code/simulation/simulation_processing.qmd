@@ -59,24 +59,29 @@ ts_metrics <- list(brain = qs::qread("../../data/simulation/Metrics_tradeSeq_Sin
                    panc = qs::qread("../../data/simulation//Metrics_tradeSeq_Single_Subject_Pancreas"), 
                    endo = qs::qread("../../data/simulation//Metrics_tradeSeq_Single_Subject_Endocrinogenesis")) %>% 
               purrr::reduce(rbind)
-scl_glm_metrics <- list(brain = qs::qread("../../data/simulation//Metrics_scLANE_GLM_Single_Subject_Brain"), 
-                        panc = qs::qread("../../data/simulation//Metrics_scLANE_GLM_Single_Subject_Pancreas"), 
-                        endo = qs::qread("../../data/simulation//Metrics_scLANE_GLM_Single_Subject_Endocrinogenesis")) %>% 
+scl_glm_metrics <- list(brain = qs::qread("../../data/simulation/Metrics_scLANE_GLM_Single_Subject_Brain"), 
+                        panc = qs::qread("../../data/simulation/Metrics_scLANE_GLM_Single_Subject_Pancreas"), 
+                        endo = qs::qread("../../data/simulation/Metrics_scLANE_GLM_Single_Subject_Endocrinogenesis")) %>% 
                    purrr::reduce(rbind)
-scl_gee_metrics <- list(brain = qs::qread("../../data/simulation//Metrics_scLANE_GEE_Multi_Subject_Brain"), 
-                        panc = qs::qread("../../data/simulation//Metrics_scLANE_GEE_Multi_Subject_Pancreas"), 
-                        endo = qs::qread("../../data/simulation//Metrics_scLANE_GEE_Multi_Subject_Endocrinogenesis")) %>% 
+scl_gee_metrics <- list(brain = qs::qread("../../data/simulation/Metrics_scLANE_GEE_Multi_Subject_Brain"), 
+                        panc = qs::qread("../../data/simulation/Metrics_scLANE_GEE_Multi_Subject_Pancreas"), 
+                        endo = qs::qread("../../data/simulation/Metrics_scLANE_GEE_Multi_Subject_Endocrinogenesis")) %>% 
                    purrr::reduce(rbind)
-scl_glmm_metrics <- list(brain = qs::qread("../../data/simulation//Metrics_scLANE_GLMM_Multi_Subject_Brain"), 
-                         panc = qs::qread("../../data/simulation//Metrics_scLANE_GLMM_Multi_Subject_Pancreas"), 
-                         endo = qs::qread("../../data/simulation//Metrics_scLANE_GLMM_Multi_Subject_Endocrinogenesis")) %>% 
+lamian_gee_metrics <- list(brain = qs::qread("../../data/simulation/Metrics_Lamian_GEE_Multi_Subject_Brain"), 
+                           panc = qs::qread("../../data/simulation/Metrics_Lamian_GEE_Multi_Subject_Pancreas"), 
+                           endo = qs::qread("../../data/simulation/Metrics_Lamian_GEE_Multi_Subject_Endocrinogenesis")) %>% 
+                      purrr::reduce(rbind)
+scl_glmm_metrics <- list(brain = qs::qread("../../data/simulation/Metrics_scLANE_GLMM_Multi_Subject_Brain"), 
+                         panc = qs::qread("../../data/simulation/Metrics_scLANE_GLMM_Multi_Subject_Pancreas"), 
+                         endo = qs::qread("../../data/simulation/Metrics_scLANE_GLMM_Multi_Subject_Endocrinogenesis")) %>% 
                     purrr::reduce(rbind)
 metric_table_master <- list(scl_glm_metrics, 
                             scl_gee_metrics,
                             scl_glmm_metrics, 
+                            lamian_gee_metrics, 
                             ts_metrics) %>% 
                        purrr::reduce(rbind) %>% 
-                       mutate(MODEL_TYPE = factor(MODEL_TYPE, levels = c("scLANE - GLM", "tradeSeq", "scLANE - GEE", "scLANE - GLMM")), 
+                       mutate(MODEL_TYPE = factor(MODEL_TYPE, levels = c("scLANE - GLM", "tradeSeq", "scLANE - GEE", "scLANE - GLMM", "Lamian")), 
                               DATE_BUILT = Sys.Date())
 ```
 
