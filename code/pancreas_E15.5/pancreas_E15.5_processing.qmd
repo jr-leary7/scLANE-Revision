@@ -52,9 +52,11 @@ Before we do anything else we load in the necessary software packages in both R 
 #| message: false
 #| warning: false
 library(dplyr)       # data manipulation
+library(GENIE3)      # trajectory GRN construction
 library(Seurat)      # scRNA-seq tools
 library(scLANE)      # trajectory DE
 library(ggplot2)     # pretty plots
+library(biomaRt)     # gene annotation
 library(tradeSeq)    # more trajectory DE
 library(patchwork)   # plot alignment
 library(reticulate)  # Python interface
@@ -158,6 +160,33 @@ guide_umap <- function(key.size = 4) {
 ```
 
 # Data {#sec-data}
+
+## Table of murine transcription factors
+
+First we read in a table of *Mus musculus* transcription factors (TFs) from [Lambert *et al* (2018)](https://doi.org/10.1016/j.cell.2018.09.045). Using the `biomaRt` package we connect to Ensembl and add 
+
+```{r}
+#| message: false
+#| warning: false
+mm_ensembl <- useMart("ensembl", 
+                      dataset = "mmusculus_gene_ensembl", 
+                      host = "https://useast.ensembl.org")
+mm_tf_raw <- readr::read_tsv("https://raw.githubusercontent.com/gifford-lab/ReprogrammingRecovery/main/data/mouse_ensemble_tfs_from_lambertetal_isyes.unique.txt",
+                             num_threads = 1,
+                             col_names = FALSE,
+                             show_col_types = FALSE) %>%
+             magrittr::set_colnames("ensembl_id")
+mm_tfs <- getBM(attributes = c("ensembl_gene_id", "mgi_symbol", "entrezgene_id", "description", "gene_biotype"),
+                filters = "ensembl_gene_id",
+                values = mm_tf_raw$ensembl_id,
+                mart = mm_ensembl,
+                uniqueRows = TRUE) %>%
+          rename(ensembl_id = ensembl_gene_id,
+                 entrez_id = entrezgene_id) %>%
+          arrange(ensembl_id) %>%
+          mutate(mgi_symbol = if_else(mgi_symbol == "", NA_character_, mgi_symbol),
+                 description = gsub("\\[Source:.*", "", description))
+```
 
 ## Pancreatic endocrinogenesis dataset
 
@@ -1047,12 +1076,44 @@ plt.gca().set_ylabel('UMAP 2')
 plt.show()
 ```
 
+# Fitting a gene regulatory network {#sec-GRN}
+
+Finally, in order to validate the links between transcription factors and target genes, we build a gene regulatory network (GRN) using the `GENIE3` package. This process takes a while to complete, so we utilize 24 threads to speed things up. 
+
+```{r}
+spliced_norm_counts <- as.matrix(seu_panc@assays$spliced$data[VariableFeatures(seu_panc), ])
+valid_tfs <- mm_tfs$mgi_symbol[mm_tfs$mgi_symbol %in% rownames(spliced_norm_counts)]
+valid_targets <- rownames(spliced_norm_counts)[!rownames(spliced_norm_counts) %in% mm_tfs$mgi_symbol]
+grn <- GENIE3(spliced_norm_counts, 
+              regulators = valid_tfs, 
+              targets = valid_targets, 
+              treeMethod = "RF", 
+              K = "sqrt", 
+              nCores = 24L,
+              verbose = FALSE)
+grn_df <- getLinkList(grn)
+```
+
+A sample of the GRN results shows us links between TFs and target genes:
+
+```{r}
+#| code-fold: true
+#| tbl-cap: A random sample of 10 links between TFs and target genes as estimated by GENIE3. 
+slice_sample(grn_df, n = 10) %>% 
+  kableExtra::kable(digits = 4, 
+                    row.names = FALSE, 
+                    col.names = c("TF", "Target", "Weight"), 
+                    booktabs = TRUE) %>% 
+  kableExtra::kable_classic(full_width = FALSE, "hover")
+```
+
 # Save data  {#sec-save}
 
 ```{r}
 saveRDS(seu_panc, file = "../../data/pancreas_E15.5/seu_panc.Rds")
 saveRDS(scLANE_models, file = "../../data/pancreas_E15.5/scLANE_models.Rds")
 saveRDS(ts_models, file = "../../data/pancreas_E15.5/ts_models.Rds")
+saveRDS(grn, file = "../../data/pancreas_E15.5/grn.Rds")
 ```
 
 # Session info {#sec-SI}
