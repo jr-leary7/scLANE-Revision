@@ -352,7 +352,7 @@ Fig_4E <- getFittedValues(scLANE_models,
                       linewidth = 0, 
                       show.legend = FALSE) + 
           geom_line(aes(y = scLANE_pred_log1p, color = lineage_label), 
-                    linewidth = 0.5, 
+                    linewidth = 0.75, 
                     show.legend = FALSE) + 
           scale_color_manual(values = palette_lineage[2:3]) + 
           scale_fill_manual(values = palette_lineage[2:3]) + 
@@ -421,13 +421,13 @@ Fig_4F <- getFittedValues(scLANE_models,
           #             linewidth = 0,
           #             show.legend = FALSE) +
           geom_line(aes(y = scLANE_pred_log1p, color = lineage_label), 
-                    linewidth = 0.5, 
+                    linewidth = 0.75, 
                     show.legend = FALSE) + 
           scale_x_continuous(labels = scales::label_number(accuracy = .01)) + 
           scale_y_continuous(labels = scales::label_number(accuracy = 1), n.breaks = 4) + 
           scale_color_manual(values = palette_lineage[2:3]) + 
           scale_fill_manual(values = palette_lineage[2:3]) + 
-          labs(x = "Pseudotime", y = "Normalized mRNA") + 
+          labs(x = "Pseudotime", y = "Normalized Expression") + 
           theme_scLANE(base.size = 9)
 Fig_4F
 ```
