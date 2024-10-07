@@ -57,6 +57,7 @@ library(tradeSeq)    # more trajectory DE
 library(patchwork)   # plot alignment
 library(slingshot)   # pseudotime inference
 library(reticulate)  # Python interface
+select <- dplyr::select
 ```
 
 # Visualization tools {#sec-viz-tools}
@@ -141,7 +142,7 @@ ts_models <- readRDS("../../data/zebrafish/ts_models.Rds")
 ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
                              arrange(desc(waldStat)) %>% 
                              mutate(gene = rownames(.), 
-                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    pvalue_adj = p.adjust(pvalue, method = "fdr"), 
                                     gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
                              relocate(gene)
 dyn_genes_ts <- filter(ts_de_res, gene_dynamic_overall == 1) %>% 
@@ -179,7 +180,7 @@ ggsave("Figure_4A.png",
        width = 3, 
        height = 3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## B 
@@ -219,7 +220,7 @@ ggsave("Figure_4B.png",
        width = 2.4, 
        height = 3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## C
@@ -259,7 +260,7 @@ ggsave("Figure_4C.png",
        width = 2.4, 
        height = 3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## D
@@ -321,7 +322,7 @@ ggsave("Figure_4D.png",
        width = 2.5, 
        height = 2.3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## E
@@ -368,21 +369,44 @@ ggsave("Figure_4E.png",
        width = 4.8, 
        height = 2.3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## F
 
 ```{r}
+# prechordal plate = A
+# notochord = B
+select(scLANE_de_res, Gene, Lineage, Test_Stat) %>% 
+  tidyr::pivot_wider(id_cols = Gene, 
+                     names_from = Lineage, 
+                     values_from = Test_Stat) %>% 
+  mutate(Ratio = A / B) %>% 
+  arrange(desc(abs(Ratio)))
+select(scLANE_de_res, Gene, Lineage, Test_Stat) %>% 
+  tidyr::pivot_wider(id_cols = Gene, 
+                     names_from = Lineage, 
+                     values_from = Test_Stat) %>% 
+  mutate(Ratio = B / A) %>% 
+  arrange(desc(abs(Ratio)))
+select(scLANE_de_res, Gene, Lineage, Test_Stat) %>% 
+  tidyr::pivot_wider(id_cols = Gene, 
+                     names_from = Lineage, 
+                     values_from = Test_Stat) %>% 
+  mutate(Ratio = B / A) %>% 
+  filter(round(Ratio) == 1)
+```
+
+```{r}
 #| fig-width: 7.3
 #| fig-height: 3
 Fig_4F <- getFittedValues(scLANE_models, 
-                          genes = c("ZGC:174153", "SLC39A10", "PLP2", "HFE2", "SMAD2", "DEPDC1A"), 
+                          genes = c("ZGC:174153", "CTSLB", "PLP2", "KDELR2A", "RPLP1", "EEF1A1L1"), 
                           pt = pt_df, 
                           expr.mat = seu_fish, 
                           size.factor.offset = cell_offset) %>% 
           mutate(lineage_label = if_else(lineage == "A", "Prechordal Plate", "Notochord"), 
-                 gene = factor(gene, levels = c("ZGC:174153", "SLC39A10", "PLP2", "HFE2", "SMAD2", "DEPDC1A")), 
+                 gene = factor(gene, levels = c("ZGC:174153", "CTSLB", "PLP2", "KDELR2A", "RPLP1", "EEF1A1L1")), 
                  gene_label = factor(tolower(gene), levels = tolower(levels(gene)))) %>% 
           ggplot(aes(x = pt, y = rna_log1p)) + 
           ggh4x::facet_grid2(lineage_label ~ gene_label, 
@@ -392,10 +416,10 @@ Fig_4F <- getFittedValues(scLANE_models,
           geom_point(size = 0.8, 
                      stroke = 0, 
                      alpha = 0.5) + 
-          geom_ribbon(aes(ymin = scLANE_ci_ll_log1p, ymax = scLANE_ci_ul_log1p, fill = lineage_label),  
-                      alpha = 0.5, 
-                      linewidth = 0, 
-                      show.legend = FALSE) + 
+          # geom_ribbon(aes(ymin = scLANE_ci_ll_log1p, ymax = scLANE_ci_ul_log1p, fill = lineage_label),
+          #             alpha = 0.5,
+          #             linewidth = 0,
+          #             show.legend = FALSE) +
           geom_line(aes(y = scLANE_pred_log1p, color = lineage_label), 
                     linewidth = 0.5, 
                     show.legend = FALSE) + 
@@ -416,14 +440,14 @@ ggsave("Figure_4F.png",
        width = 7.3, 
        height = 3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 # Magic numbers {#sec-nums}
 
 ```{r}
 round(filter(knot_df, Lineage_Name == "Prechordal Plate Lineage", Knot < 0.275, Knot > 0.15) %>% summarise(mu = mean(Knot)), 3)
-round(filter(knot_df, Lineage_Name == "Notochord Lineage", Knot < 0.35, Knot > 0.2) %>% summarise(mu = mean(Knot)), 3)
+round(filter(knot_df, Lineage_Name == "Notochord Lineage", Knot < 0.5, Knot > 0.25) %>% summarise(mu = mean(Knot)), 3)
 ```
 
 ```{r}

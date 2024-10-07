@@ -140,6 +140,9 @@ We read in the fitted models from `scLANE` that we generated earlier.
 
 ```{r}
 scLANE_models <- readRDS("../../data/pancreas_E15.5/scLANE_models.Rds")
+scLANE_de_res <- getResultsDE(scLANE_models)
+dyn_genes <- filter(scLANE_de_res, Gene_Dynamic_Overall == 1) %>% 
+             pull(Gene)
 ```
 
 Next we generate a matrix of smoothed gene dynamics, embed the dynamics using PCA and UMAP and cluster them, and add per-cluster module scores to our `Seurat` object. 
@@ -422,7 +425,7 @@ ggsave("Suppl_Figure_2D.png",
 ```{r}
 #| message: false
 S_Fig_2E <- data.frame(cell = colnames(seu_panc),
-                       peptide_score = seu_panc$Leiden_3, 
+                       peptide_score = seu_panc$Leiden_6, 
                        LT = seu_panc$latent_time, 
                        celltype = seu_panc$celltype, 
                        Gcg = seu_panc@assays$spliced@data["Gcg", ], 

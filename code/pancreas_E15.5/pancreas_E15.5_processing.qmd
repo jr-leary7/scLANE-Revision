@@ -798,27 +798,21 @@ p0 <- as.data.frame(Embeddings(seu_panc, "umap")) %>%
 p0
 ```
 
-## Trajectory DE testing
+## Trajectory DE testing with `scLANE`
 
-We use the `scLANE` package to perform trajectory differential expression testing across latent time for the top 3000 HVGs.
+We use the `scLANE` package to perform trajectory differential expression testing across latent time for the top 3000 candidate genes.
 
 ```{r}
 cell_offset <- createCellOffset(seu_panc)
 pt_df <- data.frame(LT = seu_panc$latent_time)
-hvgs <- HVFInfo(seu_panc) %>% 
-        filter(mean > 0.1) %>% 
-        arrange(desc(variance.standardized)) %>% 
-        mutate(gene = rownames(.)) %>% 
-        select(gene, 
-               mean, 
-               variance, 
-               variance.standardized) %>% 
-        slice_head(n = 3000)
+candidate_genes <- chooseCandidateGenes(seu_panc, 
+                                        group.by.subject = FALSE,
+                                        n.desired.genes = 4000L)
 scLANE_models <- testDynamic(seu_panc, 
                              pt = pt_df, 
-                             genes = hvgs$gene, 
+                             genes = candidate_genes, 
                              size.factor.offset = cell_offset, 
-                             n.cores = 8L, 
+                             n.cores = 16L, 
                              verbose = FALSE)
 ```
 
@@ -835,8 +829,8 @@ dyn_genes <- filter(scLANE_de_res_tidy, Gene_Dynamic_Overall == 1) %>%
 
 ```{r}
 ts_start <- Sys.time()
-bioc_par <- BiocParallel::MulticoreParam(workers = 8L, RNGseed = 312)
-spliced_counts <- as.matrix(seu_panc@assays$spliced$counts)[hvgs$gene, ]
+bioc_par <- BiocParallel::MulticoreParam(workers = 16L, RNGseed = 312)
+spliced_counts <- as.matrix(seu_panc@assays$spliced$counts)[candidate_genes, ]
 k_eval <- evaluateK(spliced_counts, 
                     pseudotime = pt_df, 
                     cellWeights = matrix(rep(1, nrow(pt_df)), ncol = 1), 
@@ -858,14 +852,14 @@ ts_models <- fitGAM(spliced_counts,
                     verbose = FALSE, 
                     BPPARAM = bioc_par)
 BiocParallel::bpstop(bioc_par)
-ts_end <- Sys.time()
-ts_diff <- ts_end - ts_start
 ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
                              arrange(desc(waldStat)) %>% 
                              mutate(gene = rownames(.), 
-                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    pvalue_adj = p.adjust(pvalue, method = "fdr"), 
                                     gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
                              relocate(gene)
+ts_end <- Sys.time()
+ts_diff <- ts_end - ts_start
 ```
 
 The runtime for `tradeSeq` with `r best_k` knots per gene is: 
@@ -1081,7 +1075,7 @@ plt.show()
 Finally, in order to validate the links between transcription factors and target genes, we build a gene regulatory network (GRN) using the `GENIE3` package. This process takes a while to complete, so we utilize 24 threads to speed things up. 
 
 ```{r}
-spliced_norm_counts <- as.matrix(seu_panc@assays$spliced$data[VariableFeatures(seu_panc), ])
+spliced_norm_counts <- as.matrix(seu_panc@assays$spliced$data[candidate_genes, ])
 valid_tfs <- mm_tfs$mgi_symbol[mm_tfs$mgi_symbol %in% rownames(spliced_norm_counts)]
 valid_targets <- rownames(spliced_norm_counts)[!rownames(spliced_norm_counts) %in% mm_tfs$mgi_symbol]
 grn <- GENIE3(spliced_norm_counts, 
@@ -1089,7 +1083,7 @@ grn <- GENIE3(spliced_norm_counts,
               targets = valid_targets, 
               treeMethod = "RF", 
               K = "sqrt", 
-              nCores = 24L,
+              nCores = 36L,
               verbose = FALSE)
 grn_df <- getLinkList(grn)
 ```

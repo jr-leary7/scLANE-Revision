@@ -54,10 +54,12 @@ We begin by loading the prerequisite libraries in both R & Python.
 library(dplyr)       # data manipulation
 library(Seurat)      # scRNA-seq tools
 library(scLANE)      # trajectory DE
+library(GENIE3)      # GRN construction
 library(ggplot2)     # pretty plots
 library(tradeSeq)    # more trajectory DE
 library(patchwork)   # plot alignment
 library(reticulate)  # Python interface
+select <- dplyr::select
 ```
 
 ## Python
@@ -197,11 +199,18 @@ ts_models <- readRDS("../../data/pancreas_E15.5/ts_models.Rds")
 ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
                              arrange(desc(waldStat)) %>% 
                              mutate(gene = rownames(.), 
-                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    pvalue_adj = p.adjust(pvalue, method = "fdr"), 
                                     gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
                              relocate(gene)
 dyn_genes_ts <- filter(ts_de_res, gene_dynamic_overall == 1) %>% 
                 pull(gene)
+```
+
+## Gene regulatory network
+
+```{r}
+grn <- readRDS("../../data/pancreas_E15.5/grn.Rds")
+grn_df <- getLinkList(grn)
 ```
 
 # Processing {#sec-process}
@@ -218,7 +227,7 @@ smoothed_counts <- smoothedCountsMatrix(scLANE_models,
                                         genes = dyn_genes, 
                                         size.factor.offset = cell_offset,
                                         log1p.norm = TRUE)
-gene_embed <- embedGenes(smoothed_counts$Lineage_A, resolution.param = 0.5) %>% 
+gene_embed <- embedGenes(smoothed_counts$Lineage_A, resolution.param = 0.15) %>% 
               mutate(leiden = as.factor(as.integer(leiden)))
 set.seed(312)
 smoothed_counts_knn <- bluster::makeKNNGraph(t(smoothed_counts$Lineage_A),
@@ -308,7 +317,7 @@ ck = 0.25 * ctk + 0.5 * vk + 0.25 * pk
 ```{python}
 #| fig-width: 2
 #| fig-height: 2.5
-fig = plt.figure(figsize=(2, 2.5), dpi=300)
+fig = plt.figure(figsize=(2, 2.5), dpi=320)
 gs = gridspec.GridSpec(nrows=1, ncols=1, bottom=0.075, left=0.05)
 ax = fig.add_subplot(gs[0, 0])
 ck.plot_projection(
@@ -322,7 +331,7 @@ ck.plot_projection(
     legend_loc='right margin', 
     title='', 
     frameon=True, 
-    dpi=300, 
+    dpi=320, 
     ax=ax, 
     show=False, 
     xlabel='', 
@@ -369,7 +378,7 @@ ggsave("Figure_3B.png",
        width = 2.25, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## C
@@ -409,7 +418,7 @@ ggsave("Figure_3C.png",
        width = 2.7, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## D
@@ -468,7 +477,7 @@ ggsave("Figure_3D.png",
        width = 3.6, 
        height = 2.75, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## E
@@ -528,7 +537,7 @@ ggsave("Figure_3E.png",
        width = 3.6, 
        height = 2.75, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## F
@@ -578,10 +587,36 @@ ggsave("Figure_3F.png",
        width = 3.65, 
        height = 4, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## G
+
+```{r}
+select(seu_panc@meta.data, 
+                 starts_with("Leiden_")) %>% 
+          bind_cols(embed_df) %>% 
+          select(umap1, umap2, starts_with("Leiden_")) %>% 
+          mutate(cell = rownames(.), 
+                 .before = 1) %>% 
+          tidyr::pivot_longer(!c(cell, contains("umap")), 
+                              names_to = "gene_program", 
+                              values_to = "score") %>% 
+          with_groups(gene_program, 
+                      mutate, 
+                      score = (score - min(score)) / (max(score) - min(score))) %>% 
+  arrange(score) %>% 
+          ggplot(aes(x = umap1, y = umap2, color = score)) + 
+          facet_wrap(~gene_program, ncol = 2) + 
+          geom_point(size = 0.75, alpha = 0.5, stroke = 0) + 
+          scale_color_gradientn(colors = palette_heatmap) + 
+          labs(x = "UMAP 1", 
+               y = "UMAP 2",
+               color = "Score") + 
+          theme_scLANE(base.size = 9, umap = TRUE) +
+          guides(color = guide_colorbar(barheight = unit(0.75, "in"), barwidth = unit(0.15, "in")))
+```
+
 
 ```{r}
 #| fig-width: 3.65
@@ -602,8 +637,6 @@ Fig_3G <- select(seu_panc@meta.data,
                                                 gene_program == "Leiden_2" ~ "Cell localization" , 
                                                 gene_program == "Leiden_3" ~ "Peptide secretion", 
                                                 gene_program == "Leiden_4" ~ "Endocrine differentiation", 
-                                                gene_program == "Leiden_5" ~ "Ductal housekeeping", 
-                                                gene_program == "Leiden_6" ~ "Ductal differentiation", 
                                                 TRUE ~ NA_character_)) %>% 
           arrange(score) %>% 
           ggplot(aes(x = umap1, y = umap2, color = score)) + 
@@ -632,13 +665,13 @@ ggsave("Figure_3G.png",
 # Magic numbers {#sec-nums}
 
 ```{r}
-round(scLANE_models$Neurog3$Lineage_A$Gene_Dynamics$Breakpoint2, 3)
-round(scLANE_models$Neurog3$Lineage_A$Gene_Dynamics$Slope.Segment3, 3)
+round(scLANE_models$Neurog3$Lineage_A$Gene_Dynamics$Breakpoint, 3)
+round(scLANE_models$Neurog3$Lineage_A$Gene_Dynamics$Slope.Segment2, 3)
 ```
 
 ```{r}
-round(scLANE_models$Arx$Lineage_A$Gene_Dynamics$Breakpoint2, 3)
-round(scLANE_models$Arx$Lineage_A$Gene_Dynamics$Slope.Segment3, 3)
+round(scLANE_models$Arx$Lineage_A$Gene_Dynamics$Breakpoint, 3)
+round(scLANE_models$Arx$Lineage_A$Gene_Dynamics$Slope.Segment2, 3)
 ```
 
 ```{r}
@@ -648,8 +681,8 @@ filter(seu_panc@meta.data,
 ```
 
 ```{r}
-round(scLANE_models$`Nkx2-2`$Lineage_A$Gene_Dynamics$Breakpoint2, 3)
-round(scLANE_models$Neurod1$Lineage_A$Gene_Dynamics$Breakpoint2, 3)
+round(scLANE_models$`Nkx2-2`$Lineage_A$Gene_Dynamics$Breakpoint, 3)
+round(scLANE_models$Neurod1$Lineage_A$Gene_Dynamics$Breakpoint, 3)
 ```
 
 ```{r}
@@ -682,6 +715,34 @@ length(dyn_genes_ts)
 length(intersect(dyn_genes, dyn_genes_ts))
 length(dyn_genes[!dyn_genes %in% dyn_genes_ts])
 length(dyn_genes_ts[!dyn_genes_ts %in% dyn_genes])
+```
+
+```{r}
+arrange(grn_df, 
+        targetGene, 
+        desc(weight)) %>% 
+  with_groups(targetGene, 
+              slice_head,
+              n = 10) %>% 
+  filter(targetGene == "Btbd17") %>% 
+  mutate(weight = round(weight, 3))
+arrange(grn_df, 
+        targetGene, 
+        desc(weight)) %>% 
+  with_groups(targetGene, 
+              slice_head,
+              n = 10) %>% 
+  filter(targetGene == "Gadd45a") %>% 
+  mutate(weight = round(weight, 3))
+arrange(grn_df, 
+        targetGene, 
+        desc(weight)) %>% 
+  with_groups(targetGene, 
+              slice_head,
+              n = 10) %>% 
+  filter(targetGene == "Cbfa2t3") %>% 
+  mutate(weight = round(weight, 3))
+sum(grn_df$weight > 0)
 ```
 
 # Session info {#sec-SI}

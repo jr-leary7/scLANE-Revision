@@ -61,8 +61,8 @@ metric_table_master <- qs::qread("../../data/simulation/metric_table_master")
 # Visualization tools {#sec-viz-tools}
 
 ```{r}
-palette_models <- c("#DC0000FF", "#00A1D5FF", "#D37295FF", "#349B58FF", "#9467BDFF")
-names(palette_models) <- c("scLANE - GLM", "tradeSeq", "scLANE - GEE", "scLANE - GLMM", "Lamian")
+palette_models <- c("#DC0000FF", "#00A1D5FF", "#D37295FF", "#349B58FF", "#9467BDFF", "#F1C111FF")
+names(palette_models) <- c("scLANE - GLM", "tradeSeq", "scLANE - GEE", "scLANE - GLMM", "Lamian", "PseudotimeDE")
 ```
 
 # Supplementary Figure 1 {#sec-fig1}
@@ -70,14 +70,14 @@ names(palette_models) <- c("scLANE - GLM", "tradeSeq", "scLANE - GEE", "scLANE -
 ## A
 
 ```{r}
-#| fig-width: 2.4
+#| fig-width: 2.43
 #| fig-height: 2.5
 S_Fig_1A <- filter(metric_table_master, 
-                   MODEL_TYPE %in% c("scLANE - GLM", "tradeSeq")) %>% 
+                   MODEL_TYPE %in% c("scLANE - GLM", "tradeSeq", "PseudotimeDE")) %>% 
             mutate(N_CELLS = round(N_CELLS, -1), 
                    N_CELLS = as.factor(N_CELLS)) %>% 
             ggplot(aes(x = N_CELLS, y = F_MEASURE, color = MODEL_TYPE)) + 
-            geom_boxplot(linewidth = 0.75, 
+            geom_boxplot(linewidth = 0.5, 
                          fatten = 0.75, 
                          alpha = 0.25, 
                          outlier.shape = NA, 
@@ -95,10 +95,15 @@ S_Fig_1A <- filter(metric_table_master,
             theme(legend.title = element_blank(),
                   legend.position = "top", 
                   legend.direction = "horizontal",
-                  legend.spacing.x = unit(0.02, "in"),
-                  legend.text = element_text(margin = margin(r = 0.1, unit = "in")), 
+                  legend.spacing.y = unit(0.00005, "in"),
+                  legend.text = element_text(margin = margin(r = 0.01, l = 0.01, unit = "in")), 
                   legend.margin = margin(t = -0.02, b = -0.02, unit = "in")) + 
-            guides(color = guide_legend(override.aes = list(linewidth = 2, alpha = 1)), 
+            guides(color = guide_legend(override.aes = list(linewidth = 2, alpha = 1), 
+                                        direction = "horizontal",
+                                        title.position = "top",
+                                        title.hjust = 0.5,
+                                        label.position = "bottom", 
+                                        title = NULL), 
                    fill = NULL)
 S_Fig_1A
 ```
@@ -108,7 +113,7 @@ ggsave("Suppl_Figure_1A.png",
        plot = S_Fig_1A, 
        device = "png", 
        path = "../png/",
-       width = 2.4, 
+       width = 2.5, 
        height = 2.5, 
        units = "in", 
        dpi = 300)
@@ -120,11 +125,11 @@ ggsave("Suppl_Figure_1A.png",
 #| fig-width: 2.4
 #| fig-height: 2.5
 S_Fig_1B <- filter(metric_table_master, 
-                   MODEL_TYPE %in% c("scLANE - GLM", "tradeSeq")) %>% 
+                   MODEL_TYPE %in% c("scLANE - GLM", "tradeSeq", "PseudotimeDE")) %>% 
             mutate(N_CELLS = round(N_CELLS, -1), 
                    N_CELLS = as.factor(N_CELLS)) %>% 
             ggplot(aes(x = N_CELLS, y = SENSITIVITY, color = MODEL_TYPE)) + 
-            geom_boxplot(linewidth = 0.75, 
+            geom_boxplot(linewidth = 0.5, 
                          fatten = 0.75, 
                          alpha = 0.25, 
                          outlier.shape = NA, 
@@ -160,11 +165,11 @@ ggsave("Suppl_Figure_1B.png",
 #| fig-width: 2.4
 #| fig-height: 2.5
 S_Fig_1C <- filter(metric_table_master, 
-                   MODEL_TYPE %in% c("scLANE - GLM", "tradeSeq")) %>% 
+                   MODEL_TYPE %in% c("scLANE - GLM", "tradeSeq", "PseudotimeDE")) %>% 
             mutate(N_CELLS = round(N_CELLS, -1), 
                    N_CELLS = as.factor(N_CELLS)) %>% 
-            ggplot(aes(x = N_CELLS, y = ROC_AUC, color = MODEL_TYPE)) + 
-            geom_boxplot(linewidth = 0.75, 
+            ggplot(aes(x = N_CELLS, y = SPECIFICITY, color = MODEL_TYPE)) + 
+            geom_boxplot(linewidth = 0.5, 
                          fatten = 0.75, 
                          alpha = 0.25, 
                          outlier.shape = NA, 
@@ -177,7 +182,7 @@ S_Fig_1C <- filter(metric_table_master,
                        position = position_jitterdodge(dodge.width = 1, seed = 312)) + 
             scale_y_continuous(labels = scales::label_percent(accuracy = 1), limits = c(NA, 1)) + 
             scale_color_manual(values = palette_models) + 
-            labs(x = "Cells", y = "ROC-AUC") + 
+            labs(x = "Cells", y = "Specificity") + 
             theme_scLANE(base.size = 9) + 
             theme(legend.position = "none")
 S_Fig_1C
@@ -203,7 +208,7 @@ S_Fig_1D <- filter(metric_table_master,
                    MODEL_TYPE %in% c("scLANE - GEE", "scLANE - GLMM")) %>% 
             ggplot(aes(x = SIM_REFERENCE, y = BAL_ACCURACY, color = MODEL_TYPE)) + 
             facet_wrap(~MODEL_TYPE, ncol = 2) + 
-            geom_boxplot(linewidth = 0.75, 
+            geom_boxplot(linewidth = 0.5, 
                          fatten = 0.75, 
                          alpha = 0.25, 
                          outlier.shape = NA, 

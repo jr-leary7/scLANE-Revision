@@ -670,18 +670,12 @@ seu_bcell <- NormalizeData(seu_bcell, verbose = FALSE) %>%
 
 ## `scLANE` DE analysis
 
-We use the `scLANE` package to perform trajectory DE testing across pseudotime time for the top HVGs with mean expression greater than 0.05. Since our dataset is of moderate size and composed of samples from multiple subjects we'll utilize the GEE mode of `scLANE`. 
+We use the `scLANE` package to perform trajectory DE testing across pseudotime for a set of 2,000 candidate genes. Since our dataset is of moderate size and composed of samples from multiple subjects we'll utilize the GEE mode of `scLANE`. 
 
 ```{r}
-hvgs <- HVFInfo(seu_bcell) %>% 
-        filter(mean > 0.05) %>% 
-        arrange(desc(variance.standardized)) %>% 
-        mutate(gene = rownames(.)) %>% 
-        select(gene, 
-               mean, 
-               variance, 
-               variance.standardized) %>% 
-        slice_head(n = 4000)
+candidate_genes <- chooseCandidateGenes(seu_bcell,
+                                        id.vec = seu_bcell$fetal.ids, 
+                                        n.desired.genes = 3000L)
 seu_bcell_sort <- sortObservations(seu_bcell, 
                                    pt = seu_bcell$dpt_pseudotime, 
                                    id.vec = seu_bcell$fetal.ids)
@@ -689,11 +683,11 @@ cell_offset <- createCellOffset(seu_bcell_sort)
 pt_df <- data.frame(DPT = seu_bcell_sort$dpt_pseudotime)
 scLANE_models <- testDynamic(seu_bcell_sort, 
                              pt = pt_df, 
-                             genes = hvgs$gene, 
+                             genes = candidate_genes, 
                              size.factor.offset = cell_offset, 
                              is.gee = TRUE, 
                              id.vec = seu_bcell_sort$fetal.ids, 
-                             n.cores = 6L,
+                             n.cores = 24L,
                              verbose = FALSE)
 ```
 
@@ -703,8 +697,8 @@ Continuing on, we perform subject-naive TDE testing via `tradeSeq`.
 
 ```{r}
 ts_start <- Sys.time()
-bioc_par <- BiocParallel::MulticoreParam(workers = 6L, RNGseed = 312)
-RNA_counts <- as.matrix(seu_bcell@assays$RNA$counts)[hvgs$gene, ]
+bioc_par <- BiocParallel::MulticoreParam(workers = 24L, RNGseed = 312)
+RNA_counts <- as.matrix(seu_bcell@assays$RNA$counts)[candidate_genes, ]
 cell_offset_2 <- createCellOffset(seu_bcell)
 pt_df_2 <- data.frame(DPT = seu_bcell$dpt_pseudotime)
 k_eval <- evaluateK(RNA_counts, 
@@ -754,7 +748,7 @@ names(cell_pt) <- cell_anno$Cell
 samp_design <- data.frame(intercept = rep(1, length(unique(seu_bcell$fetal.ids)))) %>%
                magrittr::set_rownames(unique(seu_bcell$fetal.ids)) %>%
                as.matrix()
-lamian_models <- lamian_test(expr = as.matrix(seu_bcell@assays$RNA$data)[hvgs$gene, ],
+lamian_models <- lamian_test(expr = as.matrix(seu_bcell@assays$RNA$data)[candidate_genes, ],
                              cellanno = cell_anno,
                              pseudotime = cell_pt,
                              design = samp_design,
@@ -762,7 +756,7 @@ lamian_models <- lamian_test(expr = as.matrix(seu_bcell@assays$RNA$data)[hvgs$ge
                              test.method = "permutation", 
                              permuiter = 100, 
                              verbose.output = FALSE, 
-                             ncores = 6L)
+                             ncores = 24L)
 lamian_end <- Sys.time()
 lamian_diff <- lamian_end - lamian_start
 ```
@@ -854,7 +848,7 @@ Plotting the projection of the pseudotime kernel's transition probability matrix
 #| code-fold: true
 #| message: false
 #| warning: false
-#| fig-cap: Diffusion map embedding overlaid with streamline arrows derived from Slingshot pseudotime.  
+#| fig-cap: Diffusion map embedding overlaid with streamline arrows derived from diffusion pseudotime.  
 #| label: fig-project-PT
 pk.plot_projection(
   basis='diffmap', 

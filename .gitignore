@@ -3,3 +3,6 @@
 *.Rhistory
 slurm*
 data/
+misc/
+*.rmarkdown
+*_processing_files

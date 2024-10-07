@@ -325,15 +325,9 @@ p3
 Finally, we perform trajectory DE testing using `scLANE`.
 
 ```{r}
-traj_gene_set <- HVFInfo(seu_fish) %>% 
-                 filter(mean > 0.1) %>% 
-                 arrange(desc(variance.standardized)) %>% 
-                 mutate(gene = rownames(.)) %>% 
-                 select(gene, 
-                        mean, 
-                        variance, 
-                        variance.standardized) %>% 
-                 slice_head(n = 3000)
+candidate_genes <- chooseCandidateGenes(seu_fish, 
+                                        group.by.subject = FALSE, 
+                                        n.desired.genes = 4000L)
 pt_df <- select(sling_pt, -c(PT_Overall, cell)) %>% 
          as.data.frame() %>% 
          magrittr::set_rownames(seu_fish$cell) %>% 
@@ -341,9 +335,9 @@ pt_df <- select(sling_pt, -c(PT_Overall, cell)) %>%
 cell_offset <- createCellOffset(seu_fish)
 scLANE_models <- testDynamic(seu_fish, 
                              pt = pt_df,
-                             genes = traj_gene_set$gene, 
+                             genes = candidate_genes, 
                              size.factor.offset = cell_offset, 
-                             n.cores = 8L, 
+                             n.cores = 16L, 
                              verbose = FALSE)
 scLANE_res_tidy <- getResultsDE(scLANE_models) %>% 
                    mutate(Lineage_Name = if_else(Lineage == "A", 
@@ -355,11 +349,11 @@ scLANE_res_tidy <- getResultsDE(scLANE_models) %>%
 
 ```{r}
 ts_start <- Sys.time()
-bioc_par <- BiocParallel::MulticoreParam(workers = 8L, RNGseed = 312)
-RNA_counts <- as.matrix(seu_fish@assays$RNA$counts)[traj_gene_set$gene, ]
+bioc_par <- BiocParallel::MulticoreParam(workers = 16L, RNGseed = 312)
+RNA_counts <- as.matrix(seu_fish@assays$RNA$counts)[candidate_genes, ]
 ts_pt <- slingPseudotime(sling_res, na = FALSE) %>% 
          as.data.frame() %>% 
-         mutate(across(contains("Lineage"), \(x) (x - min(x, na.rm = T)) / (max(x, na.rm = T) - min(x, na.rm = T))))
+         mutate(across(contains("Lineage"), \(x) (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))))
 k_eval <- evaluateK(RNA_counts, 
                     pseudotime = ts_pt, 
                     cellWeights = slingCurveWeights(sling_res), 
@@ -381,14 +375,14 @@ ts_models <- fitGAM(RNA_counts,
                     verbose = FALSE, 
                     BPPARAM = bioc_par)
 BiocParallel::bpstop(bioc_par)
-ts_end <- Sys.time()
-ts_diff <- ts_end - ts_start
 ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
-                             arrange(pvalue) %>% 
+                             arrange(desc(waldStat)) %>% 
                              mutate(gene = rownames(.), 
-                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    pvalue_adj = p.adjust(pvalue, method = "fdr"), 
                                     gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
                              relocate(gene)
+ts_end <- Sys.time()
+ts_diff <- ts_end - ts_start
 ```
 
 The runtime for `tradeSeq` with `r best_k` knots per gene is: 

@@ -735,27 +735,21 @@ p2 <- (p0 / p1) + plot_layout(guides = "collect", axes = "collect")
 p2
 ```
 
-## Trajectory DE testing
+## Trajectory DE testing with `scLANE`
 
 We use the `scLANE` package to perform trajectory DE testing across pseudotime time for the top 4000 HVGs.
 
 ```{r}
 cell_offset <- createCellOffset(seu_myeloid)
 pt_df <- data.frame(PT = sling_pt$PT)
-hvgs <- HVFInfo(seu_myeloid) %>% 
-        filter(mean > 0.05) %>% 
-        arrange(desc(variance.standardized)) %>% 
-        mutate(gene = rownames(.)) %>% 
-        select(gene, 
-               mean, 
-               variance, 
-               variance.standardized) %>% 
-        slice_head(n = 4000)
+candidate_genes <- chooseCandidateGenes(seu_myeloid, 
+                                        group.by.subject = FALSE, 
+                                        n.desired.genes = 4000L)
 scLANE_models <- testDynamic(seu_myeloid, 
                              pt = pt_df, 
-                             genes = hvgs$gene, 
+                             genes = candidate_genes, 
                              size.factor.offset = cell_offset, 
-                             n.cores = 6L,
+                             n.cores = 36L,
                              verbose = FALSE)
 scLANE_de_res <- getResultsDE(scLANE_models)
 ```
@@ -764,8 +758,8 @@ scLANE_de_res <- getResultsDE(scLANE_models)
 
 ```{r}
 ts_start <- Sys.time()
-bioc_par <- BiocParallel::MulticoreParam(workers = 6L, RNGseed = 312)
-RNA_counts <- as.matrix(seu_myeloid@assays$RNA$counts)[hvgs$gene, ]
+bioc_par <- BiocParallel::MulticoreParam(workers = 36L, RNGseed = 312)
+RNA_counts <- as.matrix(seu_myeloid@assays$RNA$counts)[candidate_genes, ]
 k_eval <- evaluateK(RNA_counts, 
                     pseudotime = pt_df, 
                     cellWeights = matrix(rep(1, nrow(pt_df)), ncol = 1), 
@@ -792,7 +786,7 @@ ts_diff <- ts_end - ts_start
 ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
                              arrange(pvalue) %>% 
                              mutate(gene = rownames(.), 
-                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    pvalue_adj = p.adjust(pvalue, method = "fdr"), 
                                     gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
                              relocate(gene)
 ```

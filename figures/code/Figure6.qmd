@@ -365,7 +365,7 @@ ts_models <- readRDS("../../data/bcell/ts_models.Rds")
 ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
                              arrange(desc(waldStat)) %>% 
                              mutate(gene = rownames(.), 
-                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    pvalue_adj = p.adjust(pvalue, method = "fdr"), 
                                     gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
                              relocate(gene)
 dyn_genes_ts <- filter(ts_de_res, gene_dynamic_overall == 1) %>% 
@@ -383,7 +383,7 @@ lamian_de_res <- rename(lamian_models$statistics,
                         pvalue = pval.overall, 
                         Zstat = z.overall) %>% 
                  arrange(desc(Zstat)) %>% 
-                 mutate(pvalue_adj = p.adjust(pvalue, method = "holm")) %>% 
+                 mutate(pvalue_adj = p.adjust(pvalue, method = "fdr")) %>% 
                  mutate(gene = rownames(.), 
                         gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
                  select(gene, 
@@ -423,7 +423,7 @@ hs_tf_raw <- readr::read_csv("http://humantfs.ccbr.utoronto.ca/download/v_1.01/D
              janitor::clean_names() %>%
              filter(is_tf == "Yes") %>%
              select(ensembl_id)
-hs_tfs <- getBM(attributes = c("ensembl_gene_id", "hgnc_symbol", "entrezgene_id", "description", "gene_biotype"),
+hs_tfs <- getBM(attributes = c("ensembl_gene_id", "hgnc_symbol", "entrezgene_id", "description", "gene_biotype"), 
                 filters = "ensembl_gene_id",
                 values = hs_tf_raw$ensembl_id,
                 mart = hs_ensembl,
