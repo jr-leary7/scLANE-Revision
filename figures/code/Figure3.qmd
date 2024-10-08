@@ -104,7 +104,7 @@ Next we define color palettes for our celltypes and our genes of interest.
 palette_celltype <- c("#A82203FF", "#208CC0FF", "#F1AF3AFF", "#CF5E4EFF", "#00991AFF", "#003967FF", "#6BD76BFF", "#660099FF")
 names(palette_celltype) <- c("Ductal", "Ngn3 low EP", "Ngn3 high EP", "Pre-endocrine", "Beta", "Alpha", "Delta", "Epsilon")
 palette_genes <- paletteer::paletteer_d("ggsci::default_igv")[-5][1:10]
-names(palette_genes) <- c("Sox9", "Neurog3", "Nkx2-2", "Rfx6", "Neurod1", "Arx", "Pax6", "Pax4", "Pdx1", "Ins1")
+names(palette_genes) <- c("Sox9", "Neurog3", "Nkx2-2", "Rfx6", "Neurod2", "Arx", "Pax6", "Pax4", "Pdx1", "Ins1")
 palette_heatmap <- paletteer::paletteer_d("wesanderson::Zissou1")
 ```
 
@@ -487,7 +487,7 @@ ggsave("Figure_3D.png",
 #| fig-height: 2.75
 #| message: false
 #| warning: false
-beta_genes <- c("Neurod1", "Nkx2-2", "Pax4", "Pdx1")
+beta_genes <- c("Pax4", "Pdx1", "Neurod2")
 p3 <- select(seu_panc@meta.data, 
              celltype, 
              latent_time) %>% 
@@ -634,9 +634,9 @@ Fig_3G <- select(seu_panc@meta.data,
                       mutate, 
                       score = (score - min(score)) / (max(score) - min(score))) %>% 
           mutate(gene_program_label = case_when(gene_program == "Leiden_1" ~ "Cell cycle" , 
-                                                gene_program == "Leiden_2" ~ "Cell localization" , 
-                                                gene_program == "Leiden_3" ~ "Peptide secretion", 
-                                                gene_program == "Leiden_4" ~ "Endocrine differentiation", 
+                                                gene_program == "Leiden_2" ~ "Endocrine differentiation", 
+                                                gene_program == "Leiden_3" ~ "Ductal housekeeping" , 
+                                                gene_program == "Leiden_4" ~ "Peptide secretion", 
                                                 TRUE ~ NA_character_)) %>% 
           arrange(score) %>% 
           ggplot(aes(x = umap1, y = umap2, color = score)) + 
