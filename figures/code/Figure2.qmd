@@ -126,7 +126,7 @@ ggsave("Figure_2A.png",
        width = 2.8, 
        height = 2.9, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## B 
@@ -177,7 +177,7 @@ ggsave("Figure_2B.png",
        width = 2.2, 
        height = 2.9, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## C
@@ -233,7 +233,7 @@ ggsave("Figure_2C.png",
        width = 2.3, 
        height = 2.9, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## D
@@ -281,7 +281,7 @@ ggsave("Figure_2D.png",
        width = 2.5, 
        height = 3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ```{r}
@@ -392,7 +392,7 @@ ggsave("Figure_2E.png",
        width = 4.8, 
        height = 3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## F
@@ -432,7 +432,7 @@ ggsave("Figure_2F.png",
        width = 2.5, 
        height = 3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## G
@@ -505,7 +505,7 @@ ggsave("Figure_2G.png",
        width = 4.8, 
        height = 3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 # Session info {#sec-SI}
