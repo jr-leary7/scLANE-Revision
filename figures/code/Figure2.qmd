@@ -239,6 +239,19 @@ ggsave("Figure_2C.png",
 ## D
 
 ```{r}
+filter(metric_table_master, 
+       MODEL_TYPE %in% c("scLANE - GEE", "Lamian"), 
+       !grepl("GROUP", DATASET_NAME)) %>% 
+  mutate(N_CELLS = round(N_CELLS, -1), 
+         N_CELLS = as.factor(N_CELLS)) %>% 
+  with_groups(c(MODEL_TYPE, N_CELLS), 
+              summarise, 
+              MU = round(median(BAL_ACCURACY), 3)) %>% 
+  arrange(N_CELLS, desc(MU))
+```
+
+
+```{r}
 #| fig-width: 2.5
 #| fig-height: 3
 Fig_2D <- filter(metric_table_master, 

@@ -222,7 +222,7 @@ Using the `scVI` library, we perform celltype-aware integration across batches b
 ```{python}
 #| results: hide
 scvi.settings.seed = 312
-scvi.settings.num_threads = 12
+scvi.settings.num_threads = 24
 scvi.model.SCVI.setup_anndata(
     ad_myeloid, 
     layer='counts', 
@@ -749,7 +749,7 @@ scLANE_models <- testDynamic(seu_myeloid,
                              pt = pt_df, 
                              genes = candidate_genes, 
                              size.factor.offset = cell_offset, 
-                             n.cores = 36L,
+                             n.cores = 24L,
                              verbose = FALSE)
 scLANE_de_res <- getResultsDE(scLANE_models)
 ```
@@ -758,7 +758,7 @@ scLANE_de_res <- getResultsDE(scLANE_models)
 
 ```{r}
 ts_start <- Sys.time()
-bioc_par <- BiocParallel::MulticoreParam(workers = 36L, RNGseed = 312)
+bioc_par <- BiocParallel::MulticoreParam(workers = 24L, RNGseed = 312)
 RNA_counts <- as.matrix(seu_myeloid@assays$RNA$counts)[candidate_genes, ]
 k_eval <- evaluateK(RNA_counts, 
                     pseudotime = pt_df, 
