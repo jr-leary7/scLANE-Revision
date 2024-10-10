@@ -722,6 +722,12 @@ ts_models <- fitGAM(RNA_counts,
                     verbose = FALSE, 
                     BPPARAM = bioc_par)
 BiocParallel::bpstop(bioc_par)
+ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
+                             arrange(desc(waldStat)) %>% 
+                             mutate(gene = rownames(.), 
+                                    pvalue_adj = p.adjust(pvalue, method = "fdr"), 
+                                    gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
+                             relocate(gene)
 ts_end <- Sys.time()
 ts_diff <- ts_end - ts_start
 ```

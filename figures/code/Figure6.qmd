@@ -479,7 +479,7 @@ ggsave("Figure_6A.png",
        width = 3, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## B
@@ -511,7 +511,7 @@ ggsave("Figure_6B.png",
        width = 2.4, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## C
@@ -538,7 +538,7 @@ ck.plot_random_walks(
     ixs_legend_loc='upper', 
     show_progress_bar=False, 
     figsize=(2.5, 2.5), 
-    dpi=300
+    dpi=320
 )
 plt.gca().set_xlabel('DC 1')
 plt.gca().set_ylabel('DC 2')
@@ -597,7 +597,7 @@ ggsave("Figure_6D.png",
        width = 3.5, 
        height = 3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## E
@@ -639,7 +639,7 @@ ggsave("Figure_6E.png",
        width = 3.8, 
        height = 3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## F
@@ -685,7 +685,7 @@ ggsave("Figure_6F.png",
        width = 7.3, 
        height = 3.83, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 # Magic numbers {#sec-nums}
