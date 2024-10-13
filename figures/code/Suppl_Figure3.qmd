@@ -65,7 +65,9 @@ First we define a `ggplot` guide that will make our legends cleaner and easier t
 
 ```{r}
 guide_umap <- function(key.size = 5) {
-  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, alpha = 1)))
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, 
+                                                                    alpha = 1, 
+                                                                    stroke = 1)))
 }
 ```
 
@@ -187,7 +189,7 @@ sling_mst <- slingMST(sling_res, as.df = TRUE)
 sling_pt <- slingPseudotime(sling_res) %>%
             as.data.frame() %>%
             mutate(cell = rownames(.),
-                   across(contains("Lineage"), \(x) (x - min(x, na.rm = T)) / (max(x, na.rm = T) - min(x, na.rm = T))), 
+                   across(contains("Lineage"), \(x) (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))), 
                    .before = 1) %>%
             rowwise() %>%
             mutate(PT_Overall = mean(c_across(contains("Lineage")), na.rm = TRUE)) %>%
@@ -228,7 +230,7 @@ ts_models <- readRDS("../../data/zebrafish/ts_models.Rds")
 ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
                              arrange(desc(waldStat)) %>% 
                              mutate(gene = rownames(.), 
-                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    pvalue_adj = p.adjust(pvalue, method = "fdr"), 
                                     gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
                              relocate(gene)
 ```
@@ -263,7 +265,7 @@ ggsave("Suppl_Figure_3A.png",
        width = 3.6, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## B
@@ -271,7 +273,7 @@ ggsave("Suppl_Figure_3A.png",
 ```{r}
 #| fig-width: 3.6
 #| fig-height: 2.5
-S_Fig_3B <- ggplot(embed_df, aes(x = f1, y = f2, color = as.numeric(cell_timepoint))) + 
+S_Fig_3B <- ggplot(embed_df, aes(x = f1, y = f2, color = as.numeric(as.character(cell_timepoint)))) + 
             geom_point(size = 1.25, alpha = 0.5, stroke = 0) + 
             scale_color_gradientn(colors = paletteer::paletteer_d("MetBrewer::OKeeffe1", direction = -1)) + 
             labs(x = "FA 1", y = "FA 2", color = "Hours post-fertilization") + 
@@ -289,7 +291,7 @@ ggsave("Suppl_Figure_3B.png",
        width = 3.6, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## C
@@ -346,7 +348,7 @@ ggsave("Suppl_Figure_3C.png",
        width = 7.3, 
        height = 2.33, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## D
@@ -397,7 +399,7 @@ ggsave("Suppl_Figure_3D.png",
        width = 7.3, 
        height = 4, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 # Magic numbers {#sec-nums}
