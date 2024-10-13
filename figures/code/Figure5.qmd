@@ -207,7 +207,7 @@ ts_models <- readRDS("../../data/hematopoesis/ts_models.Rds")
 ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
                              arrange(desc(waldStat)) %>% 
                              mutate(gene = rownames(.), 
-                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    pvalue_adj = p.adjust(pvalue, method = "fdr"), 
                                     gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
                              relocate(gene)
 dyn_genes_ts <- filter(ts_de_res, gene_dynamic_overall == 1) %>% 

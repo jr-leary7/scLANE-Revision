@@ -222,7 +222,7 @@ Using the `scVI` library, we perform celltype-aware integration across batches b
 ```{python}
 #| results: hide
 scvi.settings.seed = 312
-scvi.settings.num_threads = 12
+scvi.settings.num_threads = 24
 scvi.model.SCVI.setup_anndata(
     ad_bcell, 
     layer='counts', 
