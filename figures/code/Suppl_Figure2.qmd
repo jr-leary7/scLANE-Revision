@@ -64,7 +64,9 @@ First we define a `ggplot` guide that will make our legends cleaner and easier t
 
 ```{r}
 guide_umap <- function(key.size = 5) {
-  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, alpha = 1)))
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, 
+                                                                    alpha = 1, 
+                                                                    stroke = 1)))
 }
 ```
 
@@ -155,7 +157,7 @@ smoothed_counts <- smoothedCountsMatrix(scLANE_models,
                                         genes = dyn_genes, 
                                         size.factor.offset = cell_offset,
                                         log1p.norm = TRUE)
-gene_embed <- embedGenes(smoothed_counts$Lineage_A, resolution.param = 0.5) %>% 
+gene_embed <- embedGenes(smoothed_counts$Lineage_A, resolution.param = 0.15) %>% 
               mutate(leiden = as.factor(as.integer(leiden)))
 gene_clust_list <- purrr::map(unique(gene_embed$leiden), \(x) { 
   filter(gene_embed, leiden == x) %>% 
@@ -239,7 +241,7 @@ ggsave("Suppl_Figure_2A.png",
        width = 4.8, 
        height = 2.75, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## B
@@ -276,7 +278,7 @@ ggsave("Suppl_Figure_2B.png",
        width = 2.5, 
        height = 2.75, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## C
@@ -364,7 +366,7 @@ ggsave("Suppl_Figure_2C.png",
        width = 7.3, 
        height = 3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## D
@@ -417,7 +419,7 @@ ggsave("Suppl_Figure_2D.png",
        width = 3.6, 
        height = 3.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## E
@@ -425,7 +427,7 @@ ggsave("Suppl_Figure_2D.png",
 ```{r}
 #| message: false
 S_Fig_2E <- data.frame(cell = colnames(seu_panc),
-                       peptide_score = seu_panc$Leiden_6, 
+                       peptide_score = seu_panc$Leiden_4, 
                        LT = seu_panc$latent_time, 
                        celltype = seu_panc$celltype, 
                        Gcg = seu_panc@assays$spliced@data["Gcg", ], 
@@ -444,7 +446,9 @@ S_Fig_2E <- data.frame(cell = colnames(seu_panc),
                        show.legend = FALSE) + 
             geom_smooth(linewidth = 1, 
                         color = "black", 
-                        se = FALSE) +
+                        fill = "grey50", 
+                        se = TRUE, 
+                        method = "lm") +
             scale_color_manual(values = palette_celltype) + 
             labs(x = "Normalized Expression", y = "Peptide Program Score") + 
             theme_scLANE(base.size = 9) +
@@ -460,7 +464,7 @@ ggsave("Suppl_Figure_2E.png",
        width = 3.6, 
        height = 3.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 # Session info {sec-SI}
