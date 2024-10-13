@@ -94,7 +94,9 @@ First we define a `ggplot` guide that will make our legends cleaner and easier t
 
 ```{r}
 guide_umap <- function(key.size = 5) {
-  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, alpha = 1)))
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, 
+                                                                    alpha = 1, 
+                                                                    stroke = 1)))
 }
 ```
 
@@ -665,6 +667,10 @@ ggsave("Figure_3G.png",
 # Magic numbers {#sec-nums}
 
 ```{r}
+length(dyn_genes)
+```
+
+```{r}
 round(scLANE_models$Neurog3$Lineage_A$Gene_Dynamics$Breakpoint, 3)
 round(scLANE_models$Neurog3$Lineage_A$Gene_Dynamics$Slope.Segment2, 3)
 ```
@@ -681,8 +687,7 @@ filter(seu_panc@meta.data,
 ```
 
 ```{r}
-round(scLANE_models$`Nkx2-2`$Lineage_A$Gene_Dynamics$Breakpoint, 3)
-round(scLANE_models$Neurod1$Lineage_A$Gene_Dynamics$Breakpoint, 3)
+round(scLANE_models$Neurod2$Lineage_A$Gene_Dynamics$Breakpoint, 3)
 ```
 
 ```{r}
@@ -695,18 +700,18 @@ round(scLANE_models$Pdx1$Lineage_A$Gene_Dynamics$Slope.Segment2, 3)
 round(scLANE_models$Btbd17$Lineage_A$Gene_Dynamics$Breakpoint, 3)
 round(scLANE_models$Gadd45a$Lineage_A$Gene_Dynamics$Breakpoint, 3)
 round(scLANE_models$Cbfa2t3$Lineage_A$Gene_Dynamics$Breakpoint, 3)
+round(scLANE_models$Ppp1r14a$Lineage_A$Gene_Dynamics$Breakpoint, 3)
 round(scLANE_models$Cdc14b$Lineage_A$Gene_Dynamics$Breakpoint, 3)
-round(scLANE_models$Grasp$Lineage_A$Gene_Dynamics$Breakpoint, 3)
 round(mean(c(scLANE_models$Btbd17$Lineage_A$Gene_Dynamics$Breakpoint, 
              scLANE_models$Gadd45a$Lineage_A$Gene_Dynamics$Breakpoint,
              scLANE_models$Cbfa2t3$Lineage_A$Gene_Dynamics$Breakpoint,
-             scLANE_models$Cdc14b$Lineage_A$Gene_Dynamics$Breakpoint,
-             scLANE_models$Grasp$Lineage_A$Gene_Dynamics$Breakpoint)), 3)
+             scLANE_models$Ppp1r14a$Lineage_A$Gene_Dynamics$Breakpoint,
+             scLANE_models$Cdc14b$Lineage_A$Gene_Dynamics$Breakpoint)), 3)
 mean(c(scLANE_models$Hes6$Lineage_A$Gene_Dynamics$Slope.Segment2,
        scLANE_models$Gadd45a$Lineage_A$Gene_Dynamics$Slope.Segment1,
        scLANE_models$Cbfa2t3$Lineage_A$Gene_Dynamics$Slope.Segment1,
-       scLANE_models$Cdc14b$Lineage_A$Gene_Dynamics$Slope.Segment1,
-       scLANE_models$Grasp$Lineage_A$Gene_Dynamics$Slope.Segment1))
+       scLANE_models$Ppp1r14a$Lineage_A$Gene_Dynamics$Slope.Segment1,
+       scLANE_models$Cdc14b$Lineage_A$Gene_Dynamics$Slope.Segment1))
 ```
 
 ```{r}
@@ -742,6 +747,7 @@ arrange(grn_df,
               n = 10) %>% 
   filter(targetGene == "Cbfa2t3") %>% 
   mutate(weight = round(weight, 3))
+View(mutate(grn_df, R = row_number()))
 sum(grn_df$weight > 0)
 ```
 
