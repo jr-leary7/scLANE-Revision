@@ -6,3 +6,5 @@ data/
 misc/
 *.rmarkdown
 *_processing_files
+*.DS_Store
+figures/*.DS_Store
