@@ -123,7 +123,7 @@ S_Fig_0A <- data.frame(sim_data_gee@int_colData$reducedDims@listData$PCA[, 1:2])
             labs(x = "PC 1", 
                  y = "PC 2", 
                  color = "Pseudotime") + 
-            theme_scLANE(umap = TRUE)
+            theme_scLANE(base.size = 9, umap = TRUE)
 S_Fig_0A
 ```
 
@@ -153,7 +153,7 @@ S_Fig_0B <- data.frame(sim_data_gee@int_colData$reducedDims@listData$PCA[, 1:2])
             labs(x = "PC 1", 
                  y = "PC 2", 
                  color = "Subject") + 
-            theme_scLANE(umap = TRUE) + 
+            theme_scLANE(base.size = 9, umap = TRUE) + 
             guide_umap(key.size = 4)
 S_Fig_0B
 ```
@@ -184,7 +184,7 @@ S_Fig_0C <- data.frame(sim_data_glmm@int_colData$reducedDims@listData$PCA[, 1:2]
             labs(x = "PC 1", 
                  y = "PC 2", 
                  color = "Pseudotime") + 
-            theme_scLANE(umap = TRUE)
+            theme_scLANE(base.size = 9, umap = TRUE)
 S_Fig_0C
 ```
 
@@ -214,7 +214,7 @@ S_Fig_0D <- data.frame(sim_data_glmm@int_colData$reducedDims@listData$PCA[, 1:2]
             labs(x = "PC 1", 
                  y = "PC 2", 
                  color = "Subject") + 
-            theme_scLANE(umap = TRUE) + 
+            theme_scLANE(base.size = 9, umap = TRUE) + 
             guide_umap(key.size = 4)
 S_Fig_0D
 ```
@@ -259,7 +259,7 @@ S_Fig_0E <- getFittedValues(scLANE_models_gee,
             labs(x = "Pseudotime", 
                  y = "Normalized Expression", 
                  color = "Subject") + 
-            theme_scLANE() + 
+            theme_scLANE(base.size = 9) + 
             guide_umap(key.size = 4)
 S_Fig_0E
 ```
@@ -300,11 +300,11 @@ S_Fig_0F <- getFittedValues(scLANE_models_glmm,
                       linewidth = 0.75) + 
             scale_x_continuous(labels = scales::label_number(accuracy = 0.01)) + 
             scale_y_continuous(labels = scales::label_number(accuracy = 1)) + 
-            scale_color_manual(values = palette_subject_gee) + 
+            scale_color_manual(values = palette_subject_glmm) + 
             labs(x = "Pseudotime", 
                  y = "Normalized Expression", 
                  color = "Subject") + 
-            theme_scLANE() + 
+            theme_scLANE(base.size = 9) + 
             guide_umap(key.size = 4)
 S_Fig_0F
 ```
