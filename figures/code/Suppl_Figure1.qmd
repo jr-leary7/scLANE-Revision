@@ -116,7 +116,7 @@ ggsave("Suppl_Figure_1A.png",
        width = 2.5, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## B
@@ -156,7 +156,7 @@ ggsave("Suppl_Figure_1B.png",
        width = 2.4, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## C
@@ -196,7 +196,7 @@ ggsave("Suppl_Figure_1C.png",
        width = 2.4, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## D
@@ -205,9 +205,9 @@ ggsave("Suppl_Figure_1C.png",
 #| fig-width: 7.3
 #| fig-height: 3
 S_Fig_1D <- filter(metric_table_master, 
-                   MODEL_TYPE %in% c("scLANE - GEE", "scLANE - GLMM")) %>% 
+                   MODEL_TYPE %in% c("scLANE - GEE", "scLANE - GLMM") | (MODEL_TYPE == "Lamian" & !grepl("GROUP", DATASET_NAME))) %>% 
             ggplot(aes(x = SIM_REFERENCE, y = BAL_ACCURACY, color = MODEL_TYPE)) + 
-            facet_wrap(~MODEL_TYPE, ncol = 2) + 
+            facet_wrap(~MODEL_TYPE, ncol = 3) + 
             geom_boxplot(linewidth = 0.5, 
                          fatten = 0.75, 
                          alpha = 0.25, 
@@ -235,7 +235,7 @@ ggsave("Suppl_Figure_1D.png",
        width = 7.3, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## E
@@ -244,7 +244,7 @@ ggsave("Suppl_Figure_1D.png",
 #| fig-width: 3.5
 #| fig-height: 2.5
 S_Fig_1E <- filter(metric_table_master, 
-                   MODEL_TYPE %in% c("scLANE - GLMM", "scLANE - GEE", "Lamian")) %>% 
+                   MODEL_TYPE %in% c("scLANE - GEE", "scLANE - GLMM") | (MODEL_TYPE == "Lamian" & !grepl("GROUP", DATASET_NAME))) %>% 
             select(DATASET_NAME, N_CELLS, MODEL_TYPE, MEM_USED) %>% 
             mutate(N_CELLS = round(N_CELLS, -1), 
                    N_CELLS = as.factor(N_CELLS)) %>% 
@@ -276,7 +276,7 @@ ggsave("Suppl_Figure_1E.png",
        width = 3.6, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## F
@@ -287,7 +287,7 @@ ggsave("Suppl_Figure_1E.png",
 #| message: false
 #| warning: false
 S_Fig_1F <- filter(metric_table_master, 
-                   MODEL_TYPE %in% c("Lamian", "scLANE - GLMM", "scLANE - GEE")) %>% 
+                   MODEL_TYPE %in% c("scLANE - GEE", "scLANE - GLMM") | (MODEL_TYPE == "Lamian" & !grepl("GROUP", DATASET_NAME))) %>% 
             select(DATASET_NAME, MODEL_TYPE, N_CELLS, N_GENES, RUNTIME_HOURS) %>% 
             mutate(N_CELLS = round(N_CELLS, -1), 
                    RUNTIME_MINS = RUNTIME_HOURS * 60, 
@@ -319,7 +319,7 @@ ggsave("Suppl_Figure_1F.png",
        width = 3.6, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 # Session info {#sec-SI}
