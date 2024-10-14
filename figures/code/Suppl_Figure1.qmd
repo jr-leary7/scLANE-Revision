@@ -1,5 +1,5 @@
 ---
-title: "Figure 2"
+title: "Supplementary Figure 1"
 subtitle: "Bacher Group"
 date: today
 date-format: long

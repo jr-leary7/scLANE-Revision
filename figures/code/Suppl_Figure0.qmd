@@ -1,0 +1,327 @@
+---
+title: "Supplementary Figure 0"
+subtitle: "Bacher Group"
+date: today
+date-format: long
+author:
+  - name: Jack R. Leary
+    orcid: 0009-0004-8821-3269
+    email: j.leary@ufl.edu
+    corresponding: true
+    affiliation: 
+      - name: University of Florida
+        department: Department of Biostatistics
+        city: Gainesville
+        state: FL
+        country: US
+format:
+  html: 
+    theme: journal
+    highlight-style: tango
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    code-copy: hover
+    code-tools: true
+    code-fold: show
+    embed-resources: true
+    number-sections: true
+    fig-width: 6
+    fig-height: 4
+    fig-dpi: 320
+    fig-align: center
+    fig-cap-location: bottom
+    tbl-cap-location: bottom
+editor: source
+---
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(comment = NA)
+set.seed(312)  # lucky seed
+```
+
+# Libraries {#sec-libs}
+
+```{r}
+#| message: false
+#| warning: false
+library(dplyr)                 # data manipulation
+library(scLANE)                # trajectory DE testing
+library(ggplot2)               # pretty plots
+library(patchwork)             # plot alignment
+library(SingleCellExperiment)  # scRNA_seq data structures
+```
+
+# Visualization Tools {#sec-viz-tools}
+
+```{r}
+palette_heatmap <- paletteer::paletteer_d("MetBrewer::Hiroshige", direction = -1)
+palette_subject_gee <- paletteer::paletteer_d("ggsci::nrc_npg")
+palette_subject_glmm <- paletteer::paletteer_d("ggsci::category10_d3")
+```
+
+```{r}
+guide_umap <- function(key.size = 5) {
+  ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, 
+                                                                    alpha = 1, 
+                                                                    stroke = 1)))
+}
+```
+
+# Data {#sec-data}
+
+```{r}
+sim_data_gee <- qs::qread("../../../scLANE-Simulations/store_simulation/objects/sim_multi_endo_10_1000_6_80_balanced")
+sim_data_glmm <- qs::qread("../../../scLANE-Simulations/store_simulation/objects/sim_multi_het_endo_10_5000_6_70_balanced_40")
+```
+
+```{r}
+candidate_genes_gee <- chooseCandidateGenes(sim_data_gee, 
+                                            id.vec = sim_data_gee$subject_id,
+                                            n.desired.genes = 100L)
+candidate_genes_glmm <- chooseCandidateGenes(sim_data_glmm, 
+                                             id.vec = sim_data_glmm$subject_id,
+                                             n.desired.genes = 100L)
+```
+
+```{r}
+cell_offset_gee <- createCellOffset(sim_data_gee)
+scLANE_models_gee <- testDynamic(sim_data_gee, 
+                                 pt = data.frame(PT = sim_data_gee$cell_time_normed), 
+                                 genes = candidate_genes_gee, 
+                                 size.factor.offset = cell_offset_gee, 
+                                 is.gee = TRUE, 
+                                 id.vec = sim_data_gee$subject_id, 
+                                 n.cores = 6L)
+scLANE_de_table_gee <- getResultsDE(scLANE_models_gee)
+cell_offset_glmm <- createCellOffset(sim_data_glmm)
+scLANE_models_glmm <- testDynamic(sim_data_glmm, 
+                                  pt = data.frame(PT = sim_data_glmm$cell_time_normed), 
+                                  genes = candidate_genes_glmm, 
+                                  size.factor.offset = cell_offset_glmm, 
+                                  is.glmm = TRUE, 
+                                  id.vec = sim_data_glmm$subject_id, 
+                                  n.cores = 6L)
+scLANE_de_table_glmm <- getResultsDE(scLANE_models_glmm)
+```
+
+# Supplementary Figure 0 {#sec-fig0}
+
+## A
+
+```{r}
+#| fig-width: 3.65
+#| fig-height: 2.5
+S_Fig_0A <- data.frame(sim_data_gee@int_colData$reducedDims@listData$PCA[, 1:2]) %>% 
+            mutate(pseudotime = sim_data_gee$cell_time_normed) %>% 
+            ggplot(aes(x = PC1, y = PC2, color = pseudotime)) + 
+            geom_point(size = 2, 
+                       alpha = 0.6, 
+                       stroke = 0) + 
+            scale_color_gradientn(colors = palette_heatmap) + 
+            labs(x = "PC 1", 
+                 y = "PC 2", 
+                 color = "Pseudotime") + 
+            theme_scLANE(umap = TRUE)
+S_Fig_0A
+```
+
+```{r}
+ggsave("Suppl_Figure_0A.png",
+       plot = S_Fig_0A, 
+       device = "png", 
+       path = "../png/",
+       width = 3.65, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 320)
+```
+
+## B
+
+```{r}
+#| fig-width: 3.65
+#| fig-height: 2.5
+S_Fig_0B <- data.frame(sim_data_gee@int_colData$reducedDims@listData$PCA[, 1:2]) %>% 
+            mutate(subject_id = sim_data_gee$subject_id) %>% 
+            ggplot(aes(x = PC1, y = PC2, color = subject_id)) + 
+            geom_point(size = 2, 
+                       alpha = 0.6, 
+                       stroke = 0) + 
+            scale_color_manual(values = palette_subject_gee) + 
+            labs(x = "PC 1", 
+                 y = "PC 2", 
+                 color = "Subject") + 
+            theme_scLANE(umap = TRUE) + 
+            guide_umap(key.size = 4)
+S_Fig_0B
+```
+
+```{r}
+ggsave("Suppl_Figure_0B.png",
+       plot = S_Fig_0B, 
+       device = "png", 
+       path = "../png/",
+       width = 3.65, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 320)
+```
+
+## C
+
+```{r}
+#| fig-width: 3.65
+#| fig-height: 2.5
+S_Fig_0C <- data.frame(sim_data_glmm@int_colData$reducedDims@listData$PCA[, 1:2]) %>% 
+            mutate(pseudotime = sim_data_glmm$cell_time_normed) %>% 
+            ggplot(aes(x = PC1, y = PC2, color = pseudotime)) + 
+            geom_point(size = 2, 
+                       alpha = 0.6, 
+                       stroke = 0) + 
+            scale_color_gradientn(colors = palette_heatmap) + 
+            labs(x = "PC 1", 
+                 y = "PC 2", 
+                 color = "Pseudotime") + 
+            theme_scLANE(umap = TRUE)
+S_Fig_0C
+```
+
+```{r}
+ggsave("Suppl_Figure_0C.png",
+       plot = S_Fig_0C, 
+       device = "png", 
+       path = "../png/",
+       width = 3.65, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 320)
+```
+
+## D
+
+```{r}
+#| fig-width: 3.65
+#| fig-height: 2.5
+S_Fig_0D <- data.frame(sim_data_glmm@int_colData$reducedDims@listData$PCA[, 1:2]) %>% 
+            mutate(subject_id = sim_data_glmm$subject_id) %>% 
+            ggplot(aes(x = PC1, y = PC2, color = subject_id)) + 
+            geom_point(size = 2, 
+                       alpha = 0.6, 
+                       stroke = 0) + 
+            scale_color_manual(values = palette_subject_glmm) + 
+            labs(x = "PC 1", 
+                 y = "PC 2", 
+                 color = "Subject") + 
+            theme_scLANE(umap = TRUE) + 
+            guide_umap(key.size = 4)
+S_Fig_0D
+```
+
+```{r}
+ggsave("Suppl_Figure_0D.png",
+       plot = S_Fig_0D, 
+       device = "png", 
+       path = "../png/",
+       width = 3.65, 
+       height = 2.5, 
+       units = "in", 
+       dpi = 320)
+```
+
+## E
+
+```{r}
+#| fig-width: 3.65
+#| fig-height: 4.3
+S_Fig_0E <- getFittedValues(scLANE_models_gee,
+                            genes = scLANE_de_table_gee$Gene[4], 
+                            pt = data.frame(PT = sim_data_gee$cell_time_normed), 
+                            expr.mat = sim_data_gee,
+                            size.factor.offset = cell_offset_gee, 
+                            id.vec = sim_data_gee$subject_id) %>% 
+            ggplot(aes(x = pt, y = rna_log1p)) + 
+            geom_point(aes(color = subj_id), 
+                       size = 2, 
+                       alpha = 0.6, 
+                       stroke = 0) + 
+            geom_ribbon(aes(ymin = log1p(exp(scLANE_ci_ll_link)), ymax = log1p(exp(scLANE_ci_ul_link))), 
+                        linewidth = 0, 
+                        fill = "grey50", 
+                        alpha = 0.9) + 
+            geom_line(aes(y = log1p(exp(scLANE_pred_link))), 
+                      color = "black", 
+                      linewidth = 0.75) + 
+            scale_x_continuous(labels = scales::label_number(accuracy = 0.01)) + 
+            scale_y_continuous(labels = scales::label_number(accuracy = 1)) + 
+            scale_color_manual(values = palette_subject_gee) + 
+            labs(x = "Pseudotime", 
+                 y = "Normalized Expression", 
+                 color = "Subject") + 
+            theme_scLANE() + 
+            guide_umap(key.size = 4)
+S_Fig_0E
+```
+
+```{r}
+ggsave("Suppl_Figure_0E.png",
+       plot = S_Fig_0E, 
+       device = "png", 
+       path = "../png/",
+       width = 3.65, 
+       height = 4.3, 
+       units = "in", 
+       dpi = 320)
+```
+
+## F
+
+```{r}
+#| fig-width: 3.65
+#| fig-height: 4.3
+S_Fig_0F <- getFittedValues(scLANE_models_glmm, 
+                            genes = scLANE_de_table_glmm$Gene[5], 
+                            pt = data.frame(PT = sim_data_glmm$cell_time_normed), 
+                            expr.mat = sim_data_glmm,
+                            size.factor.offset = cell_offset_glmm, 
+                            id.vec = sim_data_glmm$subject_id) %>% 
+            ggplot(aes(x = pt, y = rna_log1p)) + 
+            geom_point(aes(color = subj_id), 
+                       size = 2, 
+                       alpha = 0.6, 
+                       stroke = 0) + 
+            geom_ribbon(aes(ymin = scLANE_ci_ll_log1p, ymax = scLANE_ci_ul_log1p, group = subj_id), 
+                        linewidth = 0, 
+                        fill = "grey50", 
+                        alpha = 0.9) + 
+            geom_line(aes(y = scLANE_pred_log1p, group = subj_id), 
+                      color = "black", 
+                      linewidth = 0.75) + 
+            scale_x_continuous(labels = scales::label_number(accuracy = 0.01)) + 
+            scale_y_continuous(labels = scales::label_number(accuracy = 1)) + 
+            scale_color_manual(values = palette_subject_gee) + 
+            labs(x = "Pseudotime", 
+                 y = "Normalized Expression", 
+                 color = "Subject") + 
+            theme_scLANE() + 
+            guide_umap(key.size = 4)
+S_Fig_0F
+```
+
+```{r}
+ggsave("Suppl_Figure_0F.png",
+       plot = S_Fig_0F, 
+       device = "png", 
+       path = "../png/",
+       width = 3.65, 
+       height = 4.3, 
+       units = "in", 
+       dpi = 320)
+```
+
+# Session info {#sec-SI}
+
+```{r}
+sessioninfo::session_info()
+```
