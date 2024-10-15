@@ -107,7 +107,7 @@ plt.rcParams.update({
     'font.size': base_size, 
     'font.weight': 'normal',
     # figure
-    'figure.dpi': 300, 
+    'figure.dpi': 320, 
     'figure.edgecolor': 'white', 
     'figure.facecolor': 'white', 
     'figure.figsize': (6, 4), 
@@ -294,7 +294,7 @@ ck = 0.2 * ctk + 0.8 * pk
 #| warning: false
 #| fig-width: 3
 #| fig-height: 2.5
-fig = plt.figure(figsize=(3, 2.5), dpi=300)
+fig = plt.figure(figsize=(3, 2.5), dpi=320)
 gs = gridspec.GridSpec(nrows=1, ncols=1, bottom=0.075, left=0.05)
 ax = fig.add_subplot(gs[0, 0])
 ck.plot_projection(
@@ -315,8 +315,8 @@ ck.plot_projection(
 )
 ax.set_xlabel('FA 1')
 ax.set_ylabel('FA 2')
-ax.set_xlim(ad_myeloid.obsm['X_draw_graph_fa'][:, 0].min() - 2000, ad_myeloid.obsm['X_draw_graph_fa'][:, 0].max() + 2000)
-ax.set_ylim(ad_myeloid.obsm['X_draw_graph_fa'][:, 1].min() - 2000, ad_myeloid.obsm['X_draw_graph_fa'][:, 1].max() + 2000)
+ax.set_xlim(ad_myeloid.obsm['X_draw_graph_fa'][:, 0].min() - 3000, ad_myeloid.obsm['X_draw_graph_fa'][:, 0].max() + 3000)
+ax.set_ylim(ad_myeloid.obsm['X_draw_graph_fa'][:, 1].min() - 3000, ad_myeloid.obsm['X_draw_graph_fa'][:, 1].max() + 3000)
 fig.savefig('../png/Figure_5A.png', bbox_inches='tight')
 plt.show()
 ```
@@ -361,7 +361,7 @@ ggsave("Figure_5B.png",
        width = 4.3, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 # Magic numbers {#sec-nums}
