@@ -51,14 +51,15 @@ We begin by loading the prerequisite libraries needed to make our plots.
 ```{r}
 #| message: false
 #| warning: false
-library(purrr)      # functional programming
-library(dplyr)      # data manipulation
-library(scLANE)     # trajectory DE
-library(Seurat)     # scRNA-seq tools
-library(ggplot2)    # pretty plots
-library(biomaRt)    # gene annotation
-library(tradeSeq)   # more trajectory DE
-library(slingshot)  # pseudotime estimation
+library(purrr)       # functional programming
+library(dplyr)       # data manipulation
+library(scLANE)      # trajectory DE
+library(Seurat)      # scRNA-seq tools
+library(ggplot2)     # pretty plots
+library(biomaRt)     # gene annotation
+library(tradeSeq)    # more trajectory DE
+library(slingshot)   # pseudotime estimation
+library(reticulate)  # Python interface 
 rename <- dplyr::rename
 reduce <- purrr::reduce
 select <- dplyr::select
@@ -107,7 +108,7 @@ plt.rcParams.update({
     'font.size': base_size, 
     'font.weight': 'normal',
     # figure
-    'figure.dpi': 300, 
+    'figure.dpi': 320, 
     'figure.edgecolor': 'white', 
     'figure.facecolor': 'white', 
     'figure.figsize': (6, 4), 
@@ -280,7 +281,7 @@ ggsave("Suppl_Figure_4A.png",
        width = 2.3, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## B
@@ -319,7 +320,7 @@ ggsave("Suppl_Figure_4B.png",
        width = 2.5, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## C
@@ -354,7 +355,7 @@ S_Fig_4C <- ggplot(gene_embed, aes(x = umap1, y = umap2, color = leiden)) +
             theme(axis.text = element_blank(), 
                   axis.ticks = element_blank(), 
                   legend.position = "top") + 
-            guide_umap(key.size = 3)
+            guide_umap(key.size = 4)
 S_Fig_4C
 ```
 
@@ -366,7 +367,7 @@ ggsave("Suppl_Figure_4C.png",
        width = 2.5, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## D
@@ -396,10 +397,10 @@ top_unique_terms <- with_groups(unique_terms,
                                 slice_head, 
                                 n = 10)
 program_labels <- c("stimulus response", 
+                    "ribosome asembly", 
                     "differentiation", 
-                    "ribosome assembly", 
-                    "immune housekeeping", 
                     "inflammatory response", 
+                    "immune housekeeping", 
                     "cell cycle")
 seu_myeloid <- geneProgramScoring(seu_myeloid, 
                                   genes = gene_embed$gene, 
@@ -448,7 +449,7 @@ ggsave("Suppl_Figure_4D.png",
        width = 4.3, 
        height = 2.33, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## E
@@ -494,7 +495,7 @@ ggsave("Suppl_Figure_4E.png",
        width = 3, 
        height = 2.33, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## F
@@ -530,7 +531,7 @@ S_Fig_4F <- getFittedValues(scLANE_models,
             theme_scLANE(base.size = 9) + 
             theme(legend.title = element_blank(), 
                   strip.text.x = element_text(face = "italic")) + 
-            guide_umap(key.size = 3)
+            guide_umap(key.size = 4)
 S_Fig_4F
 ```
 
@@ -542,7 +543,7 @@ ggsave("Suppl_Figure_4F.png",
        width = 7.3, 
        height = 4.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 # Session info {#sec-SI}
