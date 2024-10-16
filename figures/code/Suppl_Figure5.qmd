@@ -66,10 +66,10 @@ select <- dplyr::select
 First we define a `ggplot` guide that will make our legends cleaner and easier to read. 
 
 ```{r}
-guide_umap <- function(key.size = 5) {
+guide_umap <- function(key.size = 4) {
   ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, 
                                                                     alpha = 1, 
-                                                                    stroke = 0.25)))
+                                                                    stroke = 1)))
 }
 ```
 
@@ -383,7 +383,7 @@ S_Fig_5A <- tradeSeqFit(ts_models,
             theme_scLANE(base.size = 9) + 
             theme(legend.title = element_blank(), 
                   strip.text.x = element_text(face = "italic")) + 
-            guide_umap(key.size = 4)
+            guide_umap()
 S_Fig_5A
 ```
 
@@ -395,7 +395,7 @@ ggsave("Suppl_Figure_5A.png",
        width = 7.3, 
        height = 2.75, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## B
@@ -420,7 +420,7 @@ S_Fig_5B <- ggplot(gene_embed, aes(x = umap1, y = umap2)) +
                  y = "UMAP 2", 
                  color = "Gene Cluster") + 
             theme_scLANE(base.size = 9, umap = TRUE) + 
-            guide_umap(key.size = 4)
+            guide_umap()
 S_Fig_5B
 ```
 
@@ -432,7 +432,7 @@ ggsave("Suppl_Figure_5B.png",
        width = 3, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## C
@@ -495,7 +495,7 @@ ggsave("Suppl_Figure_5C.png",
        width = 4.3, 
        height = 2.5, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 ## D 
@@ -530,7 +530,7 @@ S_Fig_5D <- getFittedValues(scLANE_models,
             theme_scLANE(base.size = 9) + 
             theme(legend.title = element_blank(), 
                   strip.text.x = element_text(face = "italic")) + 
-            guide_umap(key.size = 4)
+            guide_umap()
 S_Fig_5D
 ```
 
@@ -542,7 +542,7 @@ ggsave("Suppl_Figure_5D.png",
        width = 7.3, 
        height = 3, 
        units = "in", 
-       dpi = 300)
+       dpi = 320)
 ```
 
 # Session info {#sec-SI}
