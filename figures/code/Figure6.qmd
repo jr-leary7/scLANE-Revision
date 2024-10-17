@@ -535,7 +535,7 @@ ck.plot_random_walks(
     size=30, 
     alpha=0.5, 
     components='0,1',
-    ixs_legend_loc='upper', 
+    ixs_legend_loc='lower', 
     show_progress_bar=False, 
     figsize=(2.5, 2.5), 
     dpi=320
@@ -645,11 +645,17 @@ ggsave("Figure_6E.png",
 ## F
 
 ```{r}
+plotModels(scLANE_models, gene = "SP140", pt = pt_df_sort, expr.mat = seu_bcell_sort, size.factor.offset = cell_offset_sort, is.gee = TRUE, id.vec = seu_bcell_sort$fetal.ids, plot.gam = TRUE, plot.null = TRUE, plot.glm = TRUE)
+```
+
+
+```{r}
 #| fig-width: 7.3
 #| fig-height: 3.83
 non_sclANE_dyn_genes <- unique(c(dyn_genes_ts, dyn_genes_lamian))[!unique(c(dyn_genes_ts, dyn_genes_lamian)) %in% dyn_genes]
+non_sclANE_sig_tfs <- unique(c(ts_sif_TFs$gene, lamian_sig_tfs$gene))[!unique(c(ts_sif_TFs$gene, lamian_sig_tfs$gene)) %in% scLANE_sig_TFs$Gene]
 Fig_6F <- getFittedValues(scLANE_models, 
-                          genes = (filter(scLANE_de_res, Gene %in% non_sclANE_dyn_genes) %>% slice_head(n = 8) %>% pull(Gene)),
+                          genes = (filter(scLANE_de_res, Gene %in% non_sclANE_sig_tfs) %>% slice_head(n = 8) %>% pull(Gene)),
                           pt = pt_df_sort, 
                           expr.mat = seu_bcell_sort, 
                           size.factor.offset = cell_offset_sort, 
@@ -661,10 +667,10 @@ Fig_6F <- getFittedValues(scLANE_models,
                      size = 1.25, 
                      stroke = 0, 
                      alpha = 0.75) + 
-          geom_ribbon(aes(ymin = log1p(scLANE_ci_ll / size_factor), ymax = log1p(scLANE_ci_ul / size_factor)), 
-                      fill = "grey50", 
-                      linewidth = 0, 
-                      alpha = 0.7) + 
+          # geom_ribbon(aes(ymin = log1p(scLANE_ci_ll / size_factor), ymax = log1p(scLANE_ci_ul / size_factor)), 
+          #             fill = "grey50", 
+          #             linewidth = 0, 
+          #             alpha = 0.7) + 
           geom_line(aes(y = log1p(scLANE_pred / size_factor)), 
                     color = "black", 
                     linewidth = 0.75) + 
@@ -697,11 +703,10 @@ enrich_res <- gprofiler2::gost(non_sclANE_dyn_genes,
                                significant = FALSE, 
                                sources = "GO:BP")$result %>% 
               select(term_id, 
-                     term_name, 
-                     source, 
+                     term_name,  
                      p_value) %>% 
               filter(p_value < 0.01)
-readr::write_csv(enrich_res, "../../tables/Suppl_Table1.csv",
+readr::write_csv(enrich_res, "../../tables/Suppl_Table5.csv",
                  col_names = TRUE, 
                  progress = FALSE)
 nrow(enrich_res)

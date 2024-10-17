@@ -516,7 +516,7 @@ plt.show()
 We next compute a diffusion pseudotime estimate for each cell using the first diffusion component. 
 
 ```{python}
-ad_bcell.uns['iroot'] = np.argmax(ad_bcell.obsm['X_diffmap'][:, 0])
+ad_bcell.uns['iroot'] = np.argmin(ad_bcell.obsm['X_diffmap'][:, 0])
 sc.tl.dpt(ad_bcell, n_dcs=1)
 ```
 
@@ -929,7 +929,7 @@ ck.plot_random_walks(
     size=30, 
     alpha=0.5, 
     components='0,1',
-    ixs_legend_loc='upper', 
+    ixs_legend_loc='lower', 
     show_progress_bar=False
 )
 plt.gca().set_xlabel('DC 1')

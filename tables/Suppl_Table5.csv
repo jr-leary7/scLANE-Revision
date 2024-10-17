@@ -1,0 +1,18 @@
+term_id,term_name,p_value
+GO:0048518,positive regulation of biological process,2.071347077462088e-5
+GO:0048522,positive regulation of cellular process,3.533142644502519e-5
+GO:0031325,positive regulation of cellular metabolic process,3.046150497661426e-4
+GO:0050789,regulation of biological process,3.470758129993864e-4
+GO:0050896,response to stimulus,6.718249360424318e-4
+GO:0009893,positive regulation of metabolic process,6.952616165475835e-4
+GO:0006950,response to stress,7.47620374486756e-4
+GO:0065007,biological regulation,9.05358803313346e-4
+GO:0031328,positive regulation of cellular biosynthetic process,0.002088078582592773
+GO:0009891,positive regulation of biosynthetic process,0.0025058916383425703
+GO:0010557,positive regulation of macromolecule biosynthetic process,0.0030031198429445517
+GO:0050794,regulation of cellular process,0.003688648214727767
+GO:0032502,developmental process,0.0037341730140734134
+GO:0002376,immune system process,0.004530375792787267
+GO:0010628,positive regulation of gene expression,0.00519857625045141
+GO:0051716,cellular response to stimulus,0.007782181877875681
+GO:0030154,cell differentiation,0.009984748912287561
