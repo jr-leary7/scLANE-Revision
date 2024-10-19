@@ -62,7 +62,7 @@ palette_subject_glmm <- paletteer::paletteer_d("ggsci::category10_d3")
 ```
 
 ```{r}
-guide_umap <- function(key.size = 5) {
+guide_umap <- function(key.size = 4) {
   ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, 
                                                                     alpha = 1, 
                                                                     stroke = 1)))
@@ -73,16 +73,16 @@ guide_umap <- function(key.size = 5) {
 
 ```{r}
 sim_data_gee <- qs::qread("../../../scLANE-Simulations/store_simulation/objects/sim_multi_endo_10_1000_6_80_balanced")
-sim_data_glmm <- qs::qread("../../../scLANE-Simulations/store_simulation/objects/sim_multi_het_endo_10_5000_6_70_balanced_40")
+sim_data_glmm <- qs::qread("../../../scLANE-Simulations/store_simulation/objects/sim_multi_het_endo_10_3000_6_70_balanced_40")
 ```
 
 ```{r}
 candidate_genes_gee <- chooseCandidateGenes(sim_data_gee, 
                                             id.vec = sim_data_gee$subject_id,
-                                            n.desired.genes = 100L)
+                                            n.desired.genes = 500L)
 candidate_genes_glmm <- chooseCandidateGenes(sim_data_glmm, 
                                              id.vec = sim_data_glmm$subject_id,
-                                             n.desired.genes = 100L)
+                                             n.desired.genes = 500L)
 ```
 
 ```{r}
@@ -93,7 +93,7 @@ scLANE_models_gee <- testDynamic(sim_data_gee,
                                  size.factor.offset = cell_offset_gee, 
                                  is.gee = TRUE, 
                                  id.vec = sim_data_gee$subject_id, 
-                                 n.cores = 6L)
+                                 n.cores = 20L)
 scLANE_de_table_gee <- getResultsDE(scLANE_models_gee)
 cell_offset_glmm <- createCellOffset(sim_data_glmm)
 scLANE_models_glmm <- testDynamic(sim_data_glmm, 
@@ -102,7 +102,7 @@ scLANE_models_glmm <- testDynamic(sim_data_glmm,
                                   size.factor.offset = cell_offset_glmm, 
                                   is.glmm = TRUE, 
                                   id.vec = sim_data_glmm$subject_id, 
-                                  n.cores = 6L)
+                                  n.cores = 20L)
 scLANE_de_table_glmm <- getResultsDE(scLANE_models_glmm)
 ```
 
@@ -117,7 +117,7 @@ S_Fig_0A <- data.frame(sim_data_gee@int_colData$reducedDims@listData$PCA[, 1:2])
             mutate(pseudotime = sim_data_gee$cell_time_normed) %>% 
             ggplot(aes(x = PC1, y = PC2, color = pseudotime)) + 
             geom_point(size = 2, 
-                       alpha = 0.6, 
+                       alpha = 0.5, 
                        stroke = 0) + 
             scale_color_gradientn(colors = palette_heatmap) + 
             labs(x = "PC 1", 
@@ -147,14 +147,14 @@ S_Fig_0B <- data.frame(sim_data_gee@int_colData$reducedDims@listData$PCA[, 1:2])
             mutate(subject_id = sim_data_gee$subject_id) %>% 
             ggplot(aes(x = PC1, y = PC2, color = subject_id)) + 
             geom_point(size = 2, 
-                       alpha = 0.6, 
+                       alpha = 0.5, 
                        stroke = 0) + 
             scale_color_manual(values = palette_subject_gee) + 
             labs(x = "PC 1", 
                  y = "PC 2", 
                  color = "Subject") + 
             theme_scLANE(base.size = 9, umap = TRUE) + 
-            guide_umap(key.size = 4)
+            guide_umap()
 S_Fig_0B
 ```
 
@@ -178,7 +178,7 @@ S_Fig_0C <- data.frame(sim_data_glmm@int_colData$reducedDims@listData$PCA[, 1:2]
             mutate(pseudotime = sim_data_glmm$cell_time_normed) %>% 
             ggplot(aes(x = PC1, y = PC2, color = pseudotime)) + 
             geom_point(size = 2, 
-                       alpha = 0.6, 
+                       alpha = 0.5, 
                        stroke = 0) + 
             scale_color_gradientn(colors = palette_heatmap) + 
             labs(x = "PC 1", 
@@ -208,14 +208,14 @@ S_Fig_0D <- data.frame(sim_data_glmm@int_colData$reducedDims@listData$PCA[, 1:2]
             mutate(subject_id = sim_data_glmm$subject_id) %>% 
             ggplot(aes(x = PC1, y = PC2, color = subject_id)) + 
             geom_point(size = 2, 
-                       alpha = 0.6, 
+                       alpha = 0.5, 
                        stroke = 0) + 
             scale_color_manual(values = palette_subject_glmm) + 
             labs(x = "PC 1", 
                  y = "PC 2", 
                  color = "Subject") + 
             theme_scLANE(base.size = 9, umap = TRUE) + 
-            guide_umap(key.size = 4)
+            guide_umap()
 S_Fig_0D
 ```
 
@@ -236,7 +236,7 @@ ggsave("Suppl_Figure_0D.png",
 #| fig-width: 3.65
 #| fig-height: 4.3
 S_Fig_0E <- getFittedValues(scLANE_models_gee,
-                            genes = scLANE_de_table_gee$Gene[4], 
+                            genes = "Gnb2l1", 
                             pt = data.frame(PT = sim_data_gee$cell_time_normed), 
                             expr.mat = sim_data_gee,
                             size.factor.offset = cell_offset_gee, 
@@ -281,12 +281,13 @@ ggsave("Suppl_Figure_0E.png",
 #| fig-width: 3.65
 #| fig-height: 4.3
 S_Fig_0F <- getFittedValues(scLANE_models_glmm, 
-                            genes = scLANE_de_table_glmm$Gene[5], 
+                            genes = "Nkx6-1", 
                             pt = data.frame(PT = sim_data_glmm$cell_time_normed), 
                             expr.mat = sim_data_glmm,
                             size.factor.offset = cell_offset_glmm, 
                             id.vec = sim_data_glmm$subject_id) %>% 
             ggplot(aes(x = pt, y = rna_log1p)) + 
+            facet_wrap(~subj_id, ncol = 2, nrow = 3) + 
             geom_point(aes(color = subj_id), 
                        size = 2, 
                        alpha = 0.6, 

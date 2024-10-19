@@ -580,7 +580,7 @@ Fig_6D <- data.frame(subject_id = seu_bcell@meta.data$fetal.ids,
           geom_line(data = cd79a_scLANE, 
                     mapping = aes(x = pt, y = log1p(scLANE_pred / size_factor)), 
                     color = "black", 
-                    linewidth = 1.25) + 
+                    linewidth = 0.75) + 
           labs(x = "Pseudotime", 
                y = "Normalized Expression", 
                color = "Subject") + 
@@ -645,7 +645,35 @@ ggsave("Figure_6E.png",
 ## F
 
 ```{r}
-plotModels(scLANE_models, gene = "SP140", pt = pt_df_sort, expr.mat = seu_bcell_sort, size.factor.offset = cell_offset_sort, is.gee = TRUE, id.vec = seu_bcell_sort$fetal.ids, plot.gam = TRUE, plot.null = TRUE, plot.glm = TRUE)
+geemod <- marge2(pt_df_sort, 
+                 Y = seu_bcell_sort@assays$RNA@counts["SP140", ], 
+                 Y.offset = cell_offset_sort, 
+                 is.gee = TRUE, 
+                 id.vec = seu_bcell_sort$fetal.ids, 
+                 cor.structure = "ar1",
+                 sandwich.var = TRUE,
+                 return.basis = TRUE)
+summary(geemod$final_mod)
+geemod$final_mod$naiv.var
+geemod$final_mod$var
+crossprod(coef(geemod$final_mod)[-1], solve(as.matrix(geemod$final_mod$var)[-1, -1])) %*% coef(geemod$final_mod)[-1]
+```
+
+```{r}
+geemod_noscale <- geeM::geem(Y ~ -1 + as.matrix(geemod$basis_mtx)[, -5] + offset(log(1 / cell_offset_sort)), 
+                             id = seu_bcell_sort$fetal.ids, 
+                             data = data.frame(Y = seu_bcell_sort@assays$RNA@counts["SP140", ]), 
+                             family = MASS::negative.binomial(theta = 1), 
+                             corstr = "ar1", 
+                             scale.fix = TRUE, 
+                             sandwich = TRUE)
+summary(geemod_noscale)
+crossprod(coef(geemod_noscale)[-1], solve(as.matrix(geemod_noscale$var)[-1, -1])) %*% coef(geemod_noscale)[-1]
+```
+
+
+```{r}
+plotModels(scLANE_models, gene = "SP140", pt = pt_df_sort, expr.mat = seu_bcell_sort, size.factor.offset = cell_offset_sort, is.gee = TRUE, id.vec = seu_bcell_sort$fetal.ids)
 ```
 
 
