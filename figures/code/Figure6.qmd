@@ -603,7 +603,7 @@ ggsave("Figure_6D.png",
 ## E
 
 ```{r}
-#| fig-width: 3.83
+#| fig-width: 3.8
 #| fig-height: 3
 de_gene_df <- data.frame(method = c(rep("scLANE", length(dyn_genes)), 
                                     rep("tradeSeq", length(dyn_genes_ts)), 
@@ -623,9 +623,10 @@ Fig_6E <- ggplot(de_gene_df, aes(x = methods)) +
                     size = 2.75) +
           scale_x_upset() + 
           scale_y_continuous(labels = scales::label_number(accuracy = 1, big.mark = "")) + 
+          labs(y = "") + 
           theme(text = element_text(size = 9), 
                 axis.line = element_line(linewidth = 0.75, lineend = "square"), 
-                axis.title = element_blank(), 
+                axis.title.x = element_blank(), 
                 panel.grid = element_blank(), 
                 panel.background = element_rect(fill = "white"))
 Fig_6E
