@@ -681,9 +681,8 @@ plotModels(scLANE_models, gene = "SP140", pt = pt_df_sort, expr.mat = seu_bcell_
 #| fig-width: 7.3
 #| fig-height: 3.83
 non_sclANE_dyn_genes <- unique(c(dyn_genes_ts, dyn_genes_lamian))[!unique(c(dyn_genes_ts, dyn_genes_lamian)) %in% dyn_genes]
-non_sclANE_sig_tfs <- unique(c(ts_sif_TFs$gene, lamian_sig_tfs$gene))[!unique(c(ts_sif_TFs$gene, lamian_sig_tfs$gene)) %in% scLANE_sig_TFs$Gene]
 Fig_6F <- getFittedValues(scLANE_models, 
-                          genes = (filter(scLANE_de_res, Gene %in% non_sclANE_sig_tfs) %>% slice_head(n = 8) %>% pull(Gene)),
+                          genes = (filter(scLANE_de_res, Gene %in% non_sclANE_dyn_genes) %>% slice_head(n = 8) %>% pull(Gene)),
                           pt = pt_df_sort, 
                           expr.mat = seu_bcell_sort, 
                           size.factor.offset = cell_offset_sort, 
@@ -720,24 +719,6 @@ ggsave("Figure_6F.png",
        height = 3.83, 
        units = "in", 
        dpi = 320)
-```
-
-# Magic numbers {#sec-nums}
-
-```{r}
-enrich_res <- gprofiler2::gost(non_sclANE_dyn_genes,
-                               organism = "hsapiens", 
-                               ordered_query = FALSE, 
-                               significant = FALSE, 
-                               sources = "GO:BP")$result %>% 
-              select(term_id, 
-                     term_name,  
-                     p_value) %>% 
-              filter(p_value < 0.01)
-readr::write_csv(enrich_res, "../../tables/Suppl_Table5.csv",
-                 col_names = TRUE, 
-                 progress = FALSE)
-nrow(enrich_res)
 ```
 
 # Session info {#sec-SI}

@@ -316,7 +316,7 @@ ts_models <- readRDS("../../data/bcell/ts_models.Rds")
 ts_de_res <- associationTest(ts_models, global = TRUE) %>% 
                              arrange(desc(waldStat)) %>% 
                              mutate(gene = rownames(.), 
-                                    pvalue_adj = p.adjust(pvalue, method = "holm"), 
+                                    pvalue_adj = p.adjust(pvalue, method = "fdr"), 
                                     gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
                              relocate(gene)
 dyn_genes_ts <- filter(ts_de_res, gene_dynamic_overall == 1) %>% 
@@ -334,7 +334,7 @@ lamian_de_res <- rename(lamian_models$statistics,
                         pvalue = pval.overall, 
                         Zstat = z.overall) %>% 
                  arrange(desc(Zstat)) %>% 
-                 mutate(pvalue_adj = p.adjust(pvalue, method = "holm")) %>% 
+                 mutate(pvalue_adj = p.adjust(pvalue, method = "fdr")) %>% 
                  mutate(gene = rownames(.), 
                         gene_dynamic_overall = if_else(pvalue_adj < 0.01, 1, 0)) %>% 
                  select(gene, 
@@ -467,8 +467,8 @@ S_Fig_5C <- mutate(embed_df_sort,
                                 values_to = "program_score") %>% 
             mutate(program_label = case_when(program == "cluster_1" ~ "B-cell Activation", 
                                              program == "cluster_2" ~ "Cell Cycle", 
-                                             program == "cluster_3" ~ "B-cell Proliferation", 
-                                             program == "cluster_4" ~ "Ribosome Biogenesis", 
+                                             program == "cluster_3" ~ "Ribosome Biogenesis", 
+                                             program == "cluster_4" ~ "Differentiation", 
                                              TRUE ~ NA_character_)) %>% 
             ggplot(aes(x = dc1, y = dc2)) +
             facet_wrap(~program_label, 
