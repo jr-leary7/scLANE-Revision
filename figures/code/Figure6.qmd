@@ -623,7 +623,7 @@ Fig_6E <- ggplot(de_gene_df, aes(x = methods)) +
                     size = 2.75) +
           scale_x_upset() + 
           scale_y_continuous(labels = scales::label_number(accuracy = 1, big.mark = "")) + 
-          labs(y = "") + 
+          labs(y = "\n") + 
           theme(text = element_text(size = 9), 
                 axis.line = element_line(linewidth = 0.75, lineend = "square"), 
                 axis.title.x = element_blank(), 
