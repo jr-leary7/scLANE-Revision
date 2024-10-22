@@ -646,39 +646,6 @@ ggsave("Figure_6E.png",
 ## F
 
 ```{r}
-geemod <- marge2(pt_df_sort, 
-                 Y = seu_bcell_sort@assays$RNA@counts["SP140", ], 
-                 Y.offset = cell_offset_sort, 
-                 is.gee = TRUE, 
-                 id.vec = seu_bcell_sort$fetal.ids, 
-                 cor.structure = "ar1",
-                 sandwich.var = TRUE,
-                 return.basis = TRUE)
-summary(geemod$final_mod)
-geemod$final_mod$naiv.var
-geemod$final_mod$var
-crossprod(coef(geemod$final_mod)[-1], solve(as.matrix(geemod$final_mod$var)[-1, -1])) %*% coef(geemod$final_mod)[-1]
-```
-
-```{r}
-geemod_noscale <- geeM::geem(Y ~ -1 + as.matrix(geemod$basis_mtx)[, -5] + offset(log(1 / cell_offset_sort)), 
-                             id = seu_bcell_sort$fetal.ids, 
-                             data = data.frame(Y = seu_bcell_sort@assays$RNA@counts["SP140", ]), 
-                             family = MASS::negative.binomial(theta = 1), 
-                             corstr = "ar1", 
-                             scale.fix = TRUE, 
-                             sandwich = TRUE)
-summary(geemod_noscale)
-crossprod(coef(geemod_noscale)[-1], solve(as.matrix(geemod_noscale$var)[-1, -1])) %*% coef(geemod_noscale)[-1]
-```
-
-
-```{r}
-plotModels(scLANE_models, gene = "SP140", pt = pt_df_sort, expr.mat = seu_bcell_sort, size.factor.offset = cell_offset_sort, is.gee = TRUE, id.vec = seu_bcell_sort$fetal.ids)
-```
-
-
-```{r}
 #| fig-width: 7.3
 #| fig-height: 3.83
 non_sclANE_dyn_genes <- unique(c(dyn_genes_ts, dyn_genes_lamian))[!unique(c(dyn_genes_ts, dyn_genes_lamian)) %in% dyn_genes]
@@ -720,6 +687,15 @@ ggsave("Figure_6F.png",
        height = 3.83, 
        units = "in", 
        dpi = 320)
+```
+
+# Magic numbers {#sec-nums}
+
+```{r}
+length(dyn_genes)
+length(dyn_genes_ts)
+length(dyn_genes_lamian)
+length(dyn_genes_ts) / 3000
 ```
 
 # Session info {#sec-SI}

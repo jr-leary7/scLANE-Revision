@@ -354,7 +354,7 @@ dyn_genes_lamian <- filter(lamian_de_res, gene_dynamic_overall == 1) %>%
 #| fig-width: 7.3
 #| fig-height: 2.75
 non_sclANE_dyn_genes <- unique(c(dyn_genes_ts, dyn_genes_lamian))[!unique(c(dyn_genes_ts, dyn_genes_lamian)) %in% dyn_genes]
-non_sclANE_dyn_genes_top8 <- filter(scLANE_de_res, Gene %in% non_sclANE_dyn_genes) %>% 
+non_sclANE_dyn_genes_top8 <- filter(scLANE_de_res, Gene %in% non_sclANE_dyn_genes) %>% View()
                              slice_head(n = 8) %>%
                              pull(Gene)
 S_Fig_5A <- tradeSeqFit(ts_models, 
