@@ -545,6 +545,26 @@ ggsave("Suppl_Figure_5D.png",
        dpi = 320)
 ```
 
+# Supplemental table 5 {#sec-suppl-table5}
+
+```{r}
+non_lamian_genes <- filter(scLANE_de_res, 
+                           Gene_Dynamic_Overall == 1, 
+                           !Gene %in% dyn_genes_lamian) %>% 
+                    pull(Gene)
+non_lamian_enrich_res <- gprofiler2::gost(non_lamian_genes, 
+                                          organism = "hsapiens", 
+                                          ordered_query = TRUE, 
+                                          multi_query = FALSE, 
+                                          sources = "GO:BP")$result %>% 
+                         filter(p_value < 0.01)
+suppl_table5 <- select(non_lamian_enrich_res, term_id, term_name, p_value) %>% 
+                slice_head(n = 20)
+readr::write_csv(suppl_table5, 
+                 file = "../../tables/Suppl_Table5.csv", 
+                 col_names = TRUE)
+```
+
 # Session info {#sec-SI}
 
 ```{r}
