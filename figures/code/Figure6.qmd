@@ -97,7 +97,7 @@ cr.settings.verbosity = 0
 First we define a `ggplot` guide that will make our legends cleaner and easier to read. 
 
 ```{r}
-guide_umap <- function(key.size = 5) {
+guide_umap <- function(key.size = 4) {
   ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, 
                                                                     alpha = 1, 
                                                                     stroke = 0.25)))
@@ -467,7 +467,7 @@ Fig_6A <- ggplot(embed_df, aes(x = dc1, y = dc2, color = celltype)) +
          scale_color_manual(values = palette_celltype) + 
          theme_scLANE(base.size = 9, umap = TRUE) + 
          theme(legend.title = element_blank()) + 
-         guide_umap(key.size = 4)
+         guide_umap()
 Fig_6A
 ```
 
@@ -674,7 +674,7 @@ Fig_6F <- getFittedValues(scLANE_models,
           theme_scLANE(base.size = 9) + 
           theme(legend.title = element_blank(), 
                 strip.text.x = element_text(face = "italic")) + 
-          guide_umap(key.size = 4)
+          guide_umap()
 Fig_6F
 ```
 
