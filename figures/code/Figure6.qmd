@@ -100,7 +100,7 @@ First we define a `ggplot` guide that will make our legends cleaner and easier t
 guide_umap <- function(key.size = 4) {
   ggplot2::guides(color = ggplot2::guide_legend(override.aes = list(size = key.size, 
                                                                     alpha = 1, 
-                                                                    stroke = 0.25)))
+                                                                    stroke = 1)))
 }
 ```
 
@@ -438,15 +438,15 @@ hs_tfs <- getBM(attributes = c("ensembl_gene_id", "hgnc_symbol", "entrezgene_id"
 Lastly, we create a table of significantly DE TFs for each trajectory DE method. 
 
 ```{r}
-scLANE_sig_TFs <- inner_join(scLANE_de_res, 
+sig_TFs_scLANE <- inner_join(scLANE_de_res, 
                              hs_tfs, 
                              by = c("Gene" = "hgnc_symbol")) %>% 
                   filter(Gene_Dynamic_Overall == 1)
-ts_sif_TFs <- inner_join(ts_de_res, 
+sig_TFs_ts <- inner_join(ts_de_res, 
                          hs_tfs, 
                          by = c("gene" = "hgnc_symbol")) %>% 
               filter(gene_dynamic_overall == 1)
-lamian_sig_tfs <- inner_join(lamian_de_res, 
+sig_TFs_lamian <- inner_join(lamian_de_res, 
                              hs_tfs, 
                              by = c("gene" = "hgnc_symbol")) %>% 
                   filter(gene_dynamic_overall == 1)
@@ -585,7 +585,7 @@ Fig_6D <- data.frame(subject_id = seu_bcell@meta.data$fetal.ids,
                y = "Normalized Expression", 
                color = "Subject") + 
           theme_scLANE(base.size = 9) + 
-          guides(color = guide_legend(ncol = 2, override.aes = list(alpha = 1, linewidth = 1)))
+          guides(color = guide_legend(ncol = 2, override.aes = list(alpha = 1, linewidth = 1.25)))
 Fig_6D
 ```
 
@@ -647,10 +647,12 @@ ggsave("Figure_6E.png",
 
 ```{r}
 #| fig-width: 7.3
-#| fig-height: 3.83
+#| fig-height: 2.75
 non_sclANE_dyn_genes <- unique(c(dyn_genes_ts, dyn_genes_lamian))[!unique(c(dyn_genes_ts, dyn_genes_lamian)) %in% dyn_genes]
+scLANE_dyn_genes_only <- dyn_genes[!dyn_genes %in% unique(c(dyn_genes_ts, dyn_genes_lamian))]
+non_scLANE_sig_TFs <- unique(c(sig_TFs_ts$gene, sig_TFs_lamian$gene))[!unique(c(sig_TFs_ts$gene, sig_TFs_lamian$gene)) %in% sig_TFs_scLANE$Gene]
 Fig_6F <- getFittedValues(scLANE_models, 
-                          genes = (filter(scLANE_de_res, Gene %in% non_sclANE_dyn_genes) %>% slice_head(n = 8) %>% pull(Gene)),
+                          genes = (filter(scLANE_de_res, Gene %in% non_sclANE_dyn_genes) %>% slice_head(n = 4) %>% pull(Gene)),
                           pt = pt_df_sort, 
                           expr.mat = seu_bcell_sort, 
                           size.factor.offset = cell_offset_sort, 
@@ -684,12 +686,22 @@ ggsave("Figure_6F.png",
        device = "png", 
        path = "../png/",
        width = 7.3, 
-       height = 3.83, 
+       height = 2.75, 
        units = "in", 
        dpi = 320)
 ```
 
 # Magic numbers {#sec-nums}
+
+```{r}
+non_scLANE_enrich_res <- gprofiler2::gost(non_sclANE_dyn_genes, 
+                                          organism = "hsapiens", 
+                                          ordered_query = TRUE, 
+                                          multi_query = FALSE, 
+                                          sources = "GO:BP")$result %>% 
+                         filter(p_value < 0.1)
+```
+
 
 ```{r}
 length(dyn_genes)

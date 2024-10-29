@@ -670,7 +670,7 @@ seu_bcell <- NormalizeData(seu_bcell, verbose = FALSE) %>%
 
 ## `scLANE` DE analysis
 
-We use the `scLANE` package to perform trajectory DE testing across pseudotime for a set of 2,000 candidate genes. Since our dataset is of moderate size and composed of samples from multiple subjects we'll utilize the GEE mode of `scLANE`. 
+We use the `scLANE` package to perform trajectory DE testing across pseudotime for a set of 3,000 candidate genes. Since our dataset is of moderate size and composed of samples from multiple subjects we'll utilize the GEE mode of `scLANE`. 
 
 ```{r}
 candidate_genes <- chooseCandidateGenes(seu_bcell,
@@ -687,6 +687,7 @@ scLANE_models <- testDynamic(seu_bcell_sort,
                              size.factor.offset = cell_offset, 
                              is.gee = TRUE, 
                              id.vec = seu_bcell_sort$fetal.ids, 
+                             gee.test = "score", 
                              n.cores = 24L,
                              verbose = FALSE)
 ```
