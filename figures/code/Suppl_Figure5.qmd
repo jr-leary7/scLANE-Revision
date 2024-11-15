@@ -354,11 +354,11 @@ dyn_genes_lamian <- filter(lamian_de_res, gene_dynamic_overall == 1) %>%
 #| fig-width: 7.3
 #| fig-height: 2.75
 non_sclANE_dyn_genes <- unique(c(dyn_genes_ts, dyn_genes_lamian))[!unique(c(dyn_genes_ts, dyn_genes_lamian)) %in% dyn_genes]
-non_sclANE_dyn_genes_top4 <- filter(scLANE_de_res, Gene %in% non_sclANE_dyn_genes) %>%
-                             slice_head(n = 4) %>%
+non_sclANE_dyn_genes_top8 <- filter(scLANE_de_res, Gene %in% non_sclANE_dyn_genes) %>%
+                             slice_head(n = 8) %>%
                              pull(Gene)
 S_Fig_5A <- tradeSeqFit(ts_models, 
-                        genes = non_sclANE_dyn_genes_top4, 
+                        genes = non_sclANE_dyn_genes_top8, 
                         cell.offset = cell_offset, 
                         pt.vec = seu_bcell$dpt_pseudotime, 
                         expr.mat = seu_bcell, 
@@ -452,7 +452,7 @@ enrich_res <- gprofiler2::gost(gene_clust_list,
                                ordered_query = TRUE, 
                                multi_query = FALSE, 
                                sources = "GO:BP")$result
-View(with_groups(enrich_res, query, slice_head, n = 15))
+View(with_groups(enrich_res, query, slice_head, n = 20))
 seu_bcell_sort <- geneProgramScoring(seu_bcell_sort, 
                                      genes = gene_embed$gene, 
                                      gene.clusters = gene_embed$leiden, 
@@ -465,9 +465,9 @@ S_Fig_5C <- mutate(embed_df_sort,
             tidyr::pivot_longer(cols = starts_with("cluster_"), 
                                 names_to = "program", 
                                 values_to = "program_score") %>% 
-            mutate(program_label = case_when(program == "cluster_1" ~ "Ribosome Biogenesis", 
+            mutate(program_label = case_when(program == "cluster_1" ~ "B-cell Activation", 
                                              program == "cluster_2" ~ "Cell Cycle", 
-                                             program == "cluster_3" ~ "B-cell Activation", 
+                                             program == "cluster_3" ~ "Translation", 
                                              program == "cluster_4" ~ "Differentiation", 
                                              TRUE ~ NA_character_)) %>% 
             ggplot(aes(x = dc1, y = dc2)) +
@@ -504,7 +504,7 @@ ggsave("Suppl_Figure_5C.png",
 #| fig-width: 7.3
 #| fig-height: 4
 S_Fig_5D <- getFittedValues(scLANE_models, 
-                            genes = gene_clust_list[[3]][1:12],
+                            genes = gene_clust_list[[1]][1:12],
                             pt = pt_df_sort, 
                             expr.mat = seu_bcell_sort, 
                             size.factor.offset = cell_offset_sort, 
@@ -518,10 +518,10 @@ S_Fig_5D <- getFittedValues(scLANE_models,
                        size = 1.25, 
                        stroke = 0, 
                        alpha = 0.5) + 
-            #geom_ribbon(aes(ymin = log1p(scLANE_ci_ll / size_factor), ymax = log1p(scLANE_ci_ul / size_factor)), 
-            #            fill = "grey50", 
-            #            linewidth = 0, 
-            #            alpha = 0.7) + 
+            geom_ribbon(aes(ymin = log1p(scLANE_ci_ll / size_factor), ymax = log1p(scLANE_ci_ul / size_factor)), 
+                        fill = "grey50", 
+                        linewidth = 0, 
+                        alpha = 0.7) + 
             geom_line(aes(y = log1p(scLANE_pred / size_factor)), 
                       color = "black", 
                       linewidth = 0.75) + 

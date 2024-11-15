@@ -646,13 +646,12 @@ ggsave("Figure_6E.png",
 ## F
 
 ```{r}
-#| fig-width: 7.3
-#| fig-height: 2.75
+
 non_sclANE_dyn_genes <- unique(c(dyn_genes_ts, dyn_genes_lamian))[!unique(c(dyn_genes_ts, dyn_genes_lamian)) %in% dyn_genes]
 scLANE_dyn_genes_only <- dyn_genes[!dyn_genes %in% unique(c(dyn_genes_ts, dyn_genes_lamian))]
 non_scLANE_sig_TFs <- unique(c(sig_TFs_ts$gene, sig_TFs_lamian$gene))[!unique(c(sig_TFs_ts$gene, sig_TFs_lamian$gene)) %in% sig_TFs_scLANE$Gene]
 Fig_6F <- getFittedValues(scLANE_models, 
-                          genes = (filter(scLANE_de_res, Gene %in% non_sclANE_dyn_genes) %>% slice_head(n = 4) %>% pull(Gene)),
+                          genes = (filter(scLANE_de_res, Gene %in% non_sclANE_dyn_genes) %>% slice_head(n = 8) %>% pull(Gene)),
                           pt = pt_df_sort, 
                           expr.mat = seu_bcell_sort, 
                           size.factor.offset = cell_offset_sort, 
@@ -664,10 +663,10 @@ Fig_6F <- getFittedValues(scLANE_models,
                      size = 1.25, 
                      stroke = 0, 
                      alpha = 0.75) + 
-          # geom_ribbon(aes(ymin = log1p(scLANE_ci_ll / size_factor), ymax = log1p(scLANE_ci_ul / size_factor)), 
-          #             fill = "grey50", 
-          #             linewidth = 0, 
-          #             alpha = 0.7) + 
+          geom_ribbon(aes(ymin = log1p(scLANE_ci_ll / size_factor), ymax = log1p(scLANE_ci_ul / size_factor)), 
+                      fill = "grey50", 
+                      linewidth = 0, 
+                      alpha = 0.7) + 
           geom_line(aes(y = log1p(scLANE_pred / size_factor)), 
                     color = "black", 
                     linewidth = 0.75) + 
@@ -708,6 +707,7 @@ length(dyn_genes)
 length(dyn_genes_ts)
 length(dyn_genes_lamian)
 length(dyn_genes_ts) / 3000
+length(non_sclANE_dyn_genes)
 ```
 
 # Session info {#sec-SI}
