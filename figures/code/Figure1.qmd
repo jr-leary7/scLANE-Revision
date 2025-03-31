@@ -149,10 +149,12 @@ Fig_1A <- ggplot(embed_df, aes(x = f1, y = f2, color = mean_PT)) +
           scale_color_gradientn(colors = palette_heatmap) + 
           labs(x = "Dim 1",
                y = "Dim 2", 
-               color = "Pseudotime") + 
+               color = "Pseudotime", 
+               title = "Trajectory Input to scLANE") + 
           theme_scLANE(base.size = 9, umap = TRUE) + 
           theme(axis.text = element_blank(), 
-                axis.ticks = element_blank())
+                axis.ticks = element_blank(), 
+                plot.title = element_text(hjust = 0.5))
 Fig_1A
 ```
 
@@ -187,8 +189,11 @@ Fig_1B <- data.frame(pseudotime = X_pred[, 1],
                      alpha = 0.5, 
                      show.legend = FALSE) +
           scale_color_gradientn(colors = palette_heatmap) +
-          labs(x = "Pseudotime", y = "Expression") + 
-          theme_scLANE(base.size = 9)
+          labs(x = "Pseudotime", 
+               y = "Expression", 
+               title = "Example Gene") + 
+          theme_scLANE(base.size = 9) + 
+          theme(plot.title = element_text(hjust = 0.5))
 Fig_1B
 ```
 
@@ -216,7 +221,7 @@ X_red <- intersect(X_red1, X_red2)
 q05 <- quantile(X_pred[, 1], 0.05)
 q95 <- quantile(X_pred[, 1], 0.95)
 X_red <- X_red[X_red > q05 & X_red < q95]
-if (length(X_red) > 50) {
+if (length(X_red) > 25) {
   X_red <- seq(min(X_red), max(X_red), length.out = 25)
   X_red <- round(X_red, 4)
 }
@@ -340,7 +345,8 @@ p2 <- getFittedValues(scLANE_models,
       theme_scLANE(base.size = 9) + 
       theme(plot.title = element_text(hjust = 0.5, size = 10))
 Fig_1C <- (p0 | p1 | p2) + 
-          plot_layout(axes = "collect")
+          plot_layout(axes = "collect") + 
+          plot_annotation(title = "scLANE Overview", theme = (theme_scLANE() + theme(plot.title = element_text(hjust = 0.5))))
 Fig_1C
 ```
 
@@ -365,7 +371,7 @@ ggsave("Figure_1C.png",
 offset_gee <- createCellOffset(sim_gee)
 offset_glmm <- createCellOffset(sim_glmm)
 p3 <- data.frame(pt_norm = sim_gee$cell_time_normed, 
-                 mrna = log1p(counts(sim_gee)["AARS", ] * offset_gee)) %>% 
+                 mrna = log1p(counts(sim_gee)["FLNA", ] * offset_gee)) %>% 
       ggplot(aes(x = pt_norm, y = mrna)) + 
       geom_point(size = 1.5, 
                  alpha = 0.6, 
@@ -447,7 +453,8 @@ p5b <- data.frame(subject_id = gsub("P", "S", sim_glmm$subject_id),
        theme_scLANE(base.size = 9) + 
        theme(axis.title = element_blank())
 Fig_1D <- (p3 | p4 | (p5a / p5b) ) + 
-          plot_layout(widths = c(0.65, 0.65, 1), axes = "collect")
+          plot_layout(widths = c(0.65, 0.65, 1), axes = "collect") + 
+          plot_annotation(title = "scLANE Models", theme = (theme_scLANE() + theme(plot.title = element_text(hjust = 0.5))))
 Fig_1D <- ggpubr::annotate_figure(p = ggpubr::ggarrange(Fig_1D), 
                                   bottom = grid::textGrob("Pseudotime", gp = grid::gpar(fontsize = 9)), 
                                   left = grid::textGrob("Normalized Expression", 
