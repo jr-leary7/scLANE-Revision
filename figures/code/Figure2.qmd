@@ -252,7 +252,7 @@ filter(metric_table_master,
 
 
 ```{r}
-#| fig-width: 2.5
+#| fig-width: 3.7
 #| fig-height: 3
 Fig_2D <- filter(metric_table_master, 
                  MODEL_TYPE %in% c("scLANE - GEE", "Lamian"), 
@@ -291,50 +291,58 @@ ggsave("Figure_2D.png",
        plot = Fig_2D, 
        device = "png", 
        path = "../png/",
-       width = 2.5, 
+       width = 3.7, 
        height = 3, 
        units = "in", 
        dpi = 320)
 ```
 
+## E
+
 ```{r}
-filter(metric_table_master, 
-                 MODEL_TYPE %in% c("Lamian"), 
-                 grepl("GROUP", DATASET_NAME)) %>% 
-          mutate(N_CELLS = round(N_CELLS, -1), 
-                 N_CELLS = as.factor(N_CELLS)) %>% 
-          ggplot(aes(x = N_CELLS, y = BAL_ACCURACY, color = MODEL_TYPE)) + 
-          geom_boxplot(linewidth = 0.75, 
+#| fig-width: 3.5
+#| fig-height: 3
+Fig_2E <- filter(metric_table_master, 
+                 MODEL_TYPE == "scLANE - GEE") %>%
+          mutate(DYN_GENE_OVERLAP = gsub(".*OVERLAP_", "", DATASET_NAME),
+                 DYN_GENE_OVERLAP = as.factor(paste0(gsub("_.*", "", DYN_GENE_OVERLAP), "%")),
+                 .before = 2) %>% 
+          ggplot(aes(x = DYN_GENE_OVERLAP, y = BAL_ACCURACY, color = MODEL_TYPE)) + 
+          geom_boxplot(linewidth = 0.5, 
                        fatten = 0.75, 
                        alpha = 0.25, 
                        outlier.shape = NA, 
-                       position = position_dodge(width = 1), 
                        key_glyph = "path") + 
           geom_point(size = 1, 
                      alpha = 1, 
                      stroke = 0, 
                      show.legend = FALSE, 
-                     position = position_jitterdodge(dodge.width = 1, seed = 312)) + 
-          scale_y_continuous(labels = scales::label_percent(accuracy = 1), limits = c(NA, 1)) + 
-          scale_color_manual(values = palette_models) + 
-          labs(x = "Cells", y = "Balanced Accuracy") + 
+                     position = position_jitter(seed = 312, width = 0.2)) + 
+          scale_y_continuous(labels = scales::label_percent(accuracy = 1)) + 
+          scale_color_manual(values = palette_models) +  
+          labs(x = "Dynamic Gene Overlap", y = "Balanced Accuracy") + 
           theme_scLANE(base.size = 9) + 
-          theme(legend.title = element_blank(),
-                legend.position = "top", 
-                legend.direction = "horizontal",
-                legend.spacing.x = unit(0.02, "in"),
-                legend.text = element_text(margin = margin(r = 0.1, unit = "in")), 
-                legend.margin = margin(t = -0.02, b = -0.02, unit = "in")) + 
-          guides(color = guide_legend(override.aes = list(linewidth = 2, alpha = 1)), 
-                 fill = NULL)
+          theme(legend.position = "none")
+Fig_2E
 ```
 
-## E
+```{r}
+ggsave("Figure_2E.png",
+       plot = Fig_2E, 
+       device = "png", 
+       path = "../png/",
+       width = 3.5, 
+       height = 3, 
+       units = "in", 
+       dpi = 320)
+```
+
+## F
 
 ```{r}
-#| fig-width: 4.8
+#| fig-width: 7.3
 #| fig-height: 2.5
-Fig_2E <- filter(metric_table_master, 
+Fig_2F <- filter(metric_table_master, 
                  MODEL_TYPE == "scLANE - GLMM") %>%
           mutate(DYN_GENE_OVERLAP = gsub(".*OVERLAP_", "", DATASET_NAME),
                  DYN_GENE_OVERLAP = as.factor(paste0(gsub("_.*", "", DYN_GENE_OVERLAP), "%")),
@@ -363,86 +371,16 @@ Fig_2E <- filter(metric_table_master,
                 legend.margin = margin(t = -0.02, b = -0.02, unit = "in")) + 
           guides(color = guide_legend(override.aes = list(linewidth = 2, alpha = 1)), 
                  fill = NULL)
-Fig_2E
-```
-
-```{r}
-filter(metric_table_master, 
-                 MODEL_TYPE %in% c("Lamian"), 
-                 grepl("GROUP", DATASET_NAME)) %>%
-          mutate(DYN_GENE_OVERLAP = gsub(".*OVERLAP_", "", DATASET_NAME),
-                 DYN_GENE_OVERLAP = as.factor(paste0(gsub("_.*", "", DYN_GENE_OVERLAP), "%")),
-                 N_CELLS = round(N_CELLS, -1), 
-                 N_CELLS = as.factor(N_CELLS), 
-                 .before = 2) %>% 
-          ggplot(aes(x = DYN_GENE_OVERLAP, y = BAL_ACCURACY, color = MODEL_TYPE)) + 
-          facet_wrap(~N_CELLS, ncol = 5) + 
-          geom_boxplot(linewidth = 0.75, 
-                       fatten = 0.75, 
-                       alpha = 0.25, 
-                       outlier.shape = NA, 
-                       key_glyph = "path") + 
-          geom_point(size = 1, 
-                     alpha = 1, 
-                     stroke = 0, 
-                     show.legend = FALSE, 
-                     position = position_jitter(seed = 312, width = 0.2)) + 
-          scale_y_continuous(labels = scales::label_percent(accuracy = 1)) + 
-          scale_color_manual(values = palette_models) +  
-          labs(x = "Dynamic Gene Overlap Between Subjects", 
-               y = "Balanced Accuracy", 
-               subtitle = "Cells") + 
-          theme_scLANE(base.size = 9) + 
-          theme(legend.position = "none", plot.subtitle = element_text(hjust = 0.5))
-```
-
-
-```{r}
-ggsave("Figure_2E.png",
-       plot = Fig_2E, 
-       device = "png", 
-       path = "../png/",
-       width = 4.8, 
-       height = 3, 
-       units = "in", 
-       dpi = 320)
-```
-
-## F
-
-```{r}
-#| fig-width: 2.5
-#| fig-height: 3
-Fig_2F <- filter(metric_table_master, 
-                 MODEL_TYPE == "scLANE - GEE") %>%
-          mutate(DYN_GENE_OVERLAP = gsub(".*OVERLAP_", "", DATASET_NAME),
-                 DYN_GENE_OVERLAP = as.factor(paste0(gsub("_.*", "", DYN_GENE_OVERLAP), "%")),
-                 .before = 2) %>% 
-          ggplot(aes(x = DYN_GENE_OVERLAP, y = BAL_ACCURACY, color = MODEL_TYPE)) + 
-          geom_boxplot(linewidth = 0.5, 
-                       fatten = 0.75, 
-                       alpha = 0.25, 
-                       outlier.shape = NA, 
-                       key_glyph = "path") + 
-          geom_point(size = 1, 
-                     alpha = 1, 
-                     stroke = 0, 
-                     show.legend = FALSE, 
-                     position = position_jitter(seed = 312, width = 0.2)) + 
-          scale_y_continuous(labels = scales::label_percent(accuracy = 1)) + 
-          scale_color_manual(values = palette_models) +  
-          labs(x = "Dynamic Gene Overlap", y = "Balanced Accuracy") + 
-          theme_scLANE(base.size = 9) + 
-          theme(legend.position = "none")
 Fig_2F
 ```
+
 
 ```{r}
 ggsave("Figure_2F.png",
        plot = Fig_2F, 
        device = "png", 
        path = "../png/",
-       width = 2.5, 
+       width = 7.3, 
        height = 3, 
        units = "in", 
        dpi = 320)
