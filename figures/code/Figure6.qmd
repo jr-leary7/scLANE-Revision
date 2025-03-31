@@ -646,7 +646,8 @@ ggsave("Figure_6E.png",
 ## F
 
 ```{r}
-
+#| fig-width: 7.3
+#| fig-height: 2.75
 non_sclANE_dyn_genes <- unique(c(dyn_genes_ts, dyn_genes_lamian))[!unique(c(dyn_genes_ts, dyn_genes_lamian)) %in% dyn_genes]
 scLANE_dyn_genes_only <- dyn_genes[!dyn_genes %in% unique(c(dyn_genes_ts, dyn_genes_lamian))]
 non_scLANE_sig_TFs <- unique(c(sig_TFs_ts$gene, sig_TFs_lamian$gene))[!unique(c(sig_TFs_ts$gene, sig_TFs_lamian$gene)) %in% sig_TFs_scLANE$Gene]
@@ -699,6 +700,12 @@ non_scLANE_enrich_res <- gprofiler2::gost(non_sclANE_dyn_genes,
                                           multi_query = FALSE, 
                                           sources = "GO:BP")$result %>% 
                          filter(p_value < 0.1)
+scLANE_only_enrich_res <- gprofiler2::gost(scLANE_dyn_genes_only, 
+                                           organism = "hsapiens", 
+                                           ordered_query = TRUE, 
+                                           multi_query = FALSE, 
+                                           sources = "GO:BP")$result %>% 
+                          filter(p_value < 0.1)
 ```
 
 

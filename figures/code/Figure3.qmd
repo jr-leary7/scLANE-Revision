@@ -545,8 +545,8 @@ ggsave("Figure_3E.png",
 ## F
 
 ```{r}
-#| fig-width: 3.65
-#| fig-height: 4
+#| fig-width: 7.3
+#| fig-height: 3
 neurog3_nns <- igraph::neighbors(smoothed_counts_knn, v = which(dyn_genes == "Neurog3"))
 neurog3_genes <- c("Neurog3", dyn_genes[neurog3_nns[1:5]])
 Fig_3F <- getFittedValues(scLANE_models, 
@@ -557,8 +557,8 @@ Fig_3F <- getFittedValues(scLANE_models,
                           cell.meta.data = data.frame(celltype = factor(seu_panc$celltype, levels = mean_lt$celltype))) %>% 
           ggplot(aes(x = pt, y = rna_log1p)) + 
           facet_wrap(~gene, 
-                     ncol = 2, 
-                     nrow = 3, 
+                     ncol = 3, 
+                     nrow = 2, 
                      scales = "free_y") + 
           geom_point(aes(color = celltype), 
                      size = 0.75, 
@@ -586,8 +586,8 @@ ggsave("Figure_3F.png",
        plot = Fig_3F, 
        device = "png", 
        path = "../png/",
-       width = 3.65, 
-       height = 4, 
+       width = 7.3, 
+       height = 3, 
        units = "in", 
        dpi = 320)
 ```

@@ -217,25 +217,23 @@ q05 <- quantile(X_pred[, 1], 0.05)
 q95 <- quantile(X_pred[, 1], 0.95)
 X_red <- X_red[X_red > q05 & X_red < q95]
 if (length(X_red) > 50) {
-  set.seed(312)
-  X_red <- sample(X_red, size = 50)
+  X_red <- seq(min(X_red), max(X_red), length.out = 25)
+  X_red <- round(X_red, 4)
 }
 p0 <- data.frame(pseudotime = X_pred[, 1], 
                  rna = unname(Y), 
                  size_factor = cell_offset[!is.na(pt_df$PT_P)], 
                  pseudotime_rounded = X) %>% 
       mutate(rna_log1p = log1p(rna * size_factor)) %>% 
-      rowwise() %>% 
-      mutate(candidate_knot = if_else(pseudotime_rounded %in% X_red, "Knot", "NotKnot")) %>% 
-      ungroup() %>% 
-      arrange(desc(candidate_knot)) %>% 
       ggplot(aes(x = pseudotime, y = rna)) + 
-      geom_point(aes(color = candidate_knot, alpha = candidate_knot, size = candidate_knot), 
-                 stroke = 0, 
-                 show.legend = FALSE) +
-      scale_color_manual(values = c("firebrick", "grey10")) + 
-      scale_alpha_manual(values = c(1, 0.25)) + 
-      scale_size_manual(values = c(1.75, 1)) + 
+      geom_vline(xintercept = X_red,
+                 color = "firebrick",
+                 linetype = "dashed",
+                 linewidth = 0.25, 
+                 alpha = 0.5) + 
+      geom_point(stroke = 0, color = "grey10", size = 1, alpha = 0.5) +
+      #scale_alpha_manual(values = c(1, 0.25)) + 
+      #scale_size_manual(values = c(1.75, 1)) + 
       labs(x = "Pseudotime", 
            y = "Expression", 
            title = "Candidate knot\nselection & evaluation") + 
@@ -317,7 +315,7 @@ p2 <- getFittedValues(scLANE_models,
       annotate(geom = "label",
                alpha = 0.5, 
                x = 0.575, 
-               y = 40, 
+               y = 50, 
                label.size = 0.5, 
                family = "Myriad Pro", 
                hjust = 0, 
@@ -327,7 +325,7 @@ p2 <- getFittedValues(scLANE_models,
                parse = TRUE) + 
       annotate(geom = "label",
                alpha = 0.5, 
-               x = 0.68, 
+               x = 0.7, 
                y = 10, 
                label.size = 0.5, 
                family = "Myriad Pro", 
